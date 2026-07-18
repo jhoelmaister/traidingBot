@@ -1,12 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts'
 
-const SYMBOL = 'btcusdt'
+const SYMBOL = 'BTCUSDT'
 const INTERVAL = '1m'
 const SMA_PERIODS = [
   { period: 20, color: '#f0b90b' },
   { period: 50, color: '#8b5cf6' },
 ]
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+const FIRST_YEAR = 2017 // BTCUSDT empezó a cotizar en Binance en agosto de 2017
 
 function klineToBar(k) {
   return {
@@ -27,6 +32,18 @@ function smaAt(bars, index, period) {
 
 export default function BtcChart() {
   const containerRef = useRef(null)
+  const chartRef = useRef(null)
+  const seriesRef = useRef(null)
+  const smaSeriesRef = useRef([])
+  const barsRef = useRef([])
+  const wsRef = useRef(null)
+  const requestIdRef = useRef(0)
+
+  const now = new Date()
+  const [year, setYear] = useState(now.getUTCFullYear())
+  const [month, setMonth] = useState(now.getUTCMonth() + 1)
+  const [mode, setMode] = useState('live')
+  const [status, setStatus] = useState('')
 
   useEffect(() => {
     const container = containerRef.current
@@ -49,7 +66,9 @@ export default function BtcChart() {
       wickDownColor: '#ef5350',
     })
 
-    const smaSeries = SMA_PERIODS.map(({ period, color }) => ({
+    chartRef.current = chart
+    seriesRef.current = series
+    smaSeriesRef.current = SMA_PERIODS.map(({ period, color }) => ({
       period,
       series: chart.addSeries(LineSeries, {
         color,
@@ -60,57 +79,7 @@ export default function BtcChart() {
       }),
     }))
 
-    let bars = []
-    let ws
-    let cancelled = false
-
-    function updateSma(index) {
-      for (const { period, series: line } of smaSeries) {
-        const value = smaAt(bars, index, period)
-        if (value !== null) line.update({ time: bars[index].time, value })
-      }
-    }
-
-    async function loadHistory() {
-      const res = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${SYMBOL.toUpperCase()}&interval=${INTERVAL}&limit=500`,
-      )
-      const data = await res.json()
-      if (cancelled) return
-
-      bars = data.map(klineToBar)
-      series.setData(bars)
-      for (const { period, series: line } of smaSeries) {
-        const points = []
-        for (let i = period - 1; i < bars.length; i++) {
-          points.push({ time: bars[i].time, value: smaAt(bars, i, period) })
-        }
-        line.setData(points)
-      }
-      chart.timeScale().fitContent()
-
-      ws = new WebSocket(`wss://stream.binance.com:9443/ws/${SYMBOL}@kline_${INTERVAL}`)
-      ws.onmessage = (event) => {
-        const { k } = JSON.parse(event.data)
-        const bar = {
-          time: Math.floor(k.t / 1000),
-          open: parseFloat(k.o),
-          high: parseFloat(k.h),
-          low: parseFloat(k.l),
-          close: parseFloat(k.c),
-        }
-        series.update(bar)
-
-        if (bars.length && bars[bars.length - 1].time === bar.time) {
-          bars[bars.length - 1] = bar
-        } else {
-          bars.push(bar)
-        }
-        updateSma(bars.length - 1)
-      }
-    }
-
-    loadHistory()
+    loadLive()
 
     function handleResize() {
       chart.applyOptions({ width: container.clientWidth })
@@ -118,12 +87,134 @@ export default function BtcChart() {
     window.addEventListener('resize', handleResize)
 
     return () => {
-      cancelled = true
+      requestIdRef.current += 1
       window.removeEventListener('resize', handleResize)
-      ws?.close()
+      wsRef.current?.close()
       chart.remove()
     }
   }, [])
 
-  return <div ref={containerRef} style={{ width: '100%' }} />
+  function applyBars(bars) {
+    barsRef.current = bars
+    seriesRef.current.setData(bars)
+    for (const { period, series: line } of smaSeriesRef.current) {
+      const points = []
+      for (let i = period - 1; i < bars.length; i++) {
+        points.push({ time: bars[i].time, value: smaAt(bars, i, period) })
+      }
+      line.setData(points)
+    }
+    chartRef.current.timeScale().fitContent()
+  }
+
+  function updateLastSma() {
+    const bars = barsRef.current
+    const index = bars.length - 1
+    for (const { period, series: line } of smaSeriesRef.current) {
+      const value = smaAt(bars, index, period)
+      if (value !== null) line.update({ time: bars[index].time, value })
+    }
+  }
+
+  function connectLiveSocket() {
+    const ws = new WebSocket(
+      `wss://stream.binance.com:9443/ws/${SYMBOL.toLowerCase()}@kline_${INTERVAL}`,
+    )
+    ws.onmessage = (event) => {
+      const { k } = JSON.parse(event.data)
+      const bar = klineToBar([k.t, k.o, k.h, k.l, k.c])
+      seriesRef.current.update(bar)
+
+      const bars = barsRef.current
+      if (bars.length && bars[bars.length - 1].time === bar.time) {
+        bars[bars.length - 1] = bar
+      } else {
+        bars.push(bar)
+      }
+      updateLastSma()
+    }
+    wsRef.current = ws
+  }
+
+  async function loadLive() {
+    const myId = ++requestIdRef.current
+    wsRef.current?.close()
+    setMode('live')
+    setStatus('Cargando...')
+
+    const res = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${SYMBOL}&interval=${INTERVAL}&limit=500`,
+    )
+    const data = await res.json()
+    if (requestIdRef.current !== myId) return
+
+    applyBars(data.map(klineToBar))
+    connectLiveSocket()
+    setStatus('')
+  }
+
+  async function loadHistorical(selectedYear, selectedMonth) {
+    const myId = ++requestIdRef.current
+    wsRef.current?.close()
+    setMode('historical')
+
+    const start = Date.UTC(selectedYear, selectedMonth - 1, 1)
+    const endExclusive = Date.UTC(
+      selectedMonth === 12 ? selectedYear + 1 : selectedYear,
+      selectedMonth === 12 ? 0 : selectedMonth,
+      1,
+    )
+
+    let all = []
+    let cursor = start
+    while (cursor < endExclusive) {
+      setStatus(`Cargando histórico... ${all.length.toLocaleString('es-AR')} velas`)
+      const res = await fetch(
+        `https://api.binance.com/api/v3/klines?symbol=${SYMBOL}&interval=${INTERVAL}` +
+          `&startTime=${cursor}&endTime=${endExclusive - 1}&limit=1000`,
+      )
+      const data = await res.json()
+      if (requestIdRef.current !== myId) return
+      if (!data.length) break
+
+      all = all.concat(data.map(klineToBar))
+      const lastOpenMs = data[data.length - 1][0]
+      cursor = lastOpenMs + 60_000
+      if (data.length < 1000) break
+    }
+
+    applyBars(all)
+    setStatus(`${all.length.toLocaleString('es-AR')} velas cargadas`)
+  }
+
+  const isLoading = status.startsWith('Cargando')
+  const years = []
+  for (let y = now.getUTCFullYear(); y >= FIRST_YEAR; y--) years.push(y)
+
+  return (
+    <div>
+      <div className="toolbar">
+        <select value={month} onChange={(e) => setMonth(Number(e.target.value))} disabled={isLoading}>
+          {MONTH_NAMES.map((name, i) => (
+            <option key={i + 1} value={i + 1}>{name}</option>
+          ))}
+        </select>
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))} disabled={isLoading}>
+          {years.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+        <button onClick={() => loadHistorical(year, month)} disabled={isLoading}>
+          Cargar histórico
+        </button>
+        {mode === 'historical' && (
+          <button onClick={loadLive} disabled={isLoading}>
+            Volver a en vivo
+          </button>
+        )}
+        {status && <span className="status">{status}</span>}
+      </div>
+      <div ref={containerRef} style={{ width: '100%' }} />
+    </div>
+  )
 }

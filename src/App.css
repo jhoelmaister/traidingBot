@@ -19,3 +19,39 @@ header p {
   color: #888;
   font-size: 0.9rem;
 }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.toolbar select,
+.toolbar button {
+  background: #1e222d;
+  color: #d1d4dc;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.toolbar button {
+  cursor: pointer;
+}
+
+.toolbar button:hover:not(:disabled) {
+  background: #2a2e39;
+}
+
+.toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toolbar .status {
+  color: #888;
+  font-size: 0.85rem;
+}
