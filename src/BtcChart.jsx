@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { createChart, CandlestickSeries } from 'lightweight-charts'
+import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts'
 
 const SYMBOL = 'btcusdt'
 const INTERVAL = '1m'
+const SMA_PERIODS = [
+  { period: 20, color: '#f0b90b' },
+  { period: 50, color: '#8b5cf6' },
+]
 
 function klineToBar(k) {
   return {
@@ -12,6 +16,13 @@ function klineToBar(k) {
     low: parseFloat(k[3]),
     close: parseFloat(k[4]),
   }
+}
+
+function smaAt(bars, index, period) {
+  if (index + 1 < period) return null
+  let sum = 0
+  for (let i = index - period + 1; i <= index; i++) sum += bars[i].close
+  return sum / period
 }
 
 export default function BtcChart() {
@@ -38,8 +49,27 @@ export default function BtcChart() {
       wickDownColor: '#ef5350',
     })
 
+    const smaSeries = SMA_PERIODS.map(({ period, color }) => ({
+      period,
+      series: chart.addSeries(LineSeries, {
+        color,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      }),
+    }))
+
+    let bars = []
     let ws
     let cancelled = false
+
+    function updateSma(index) {
+      for (const { period, series: line } of smaSeries) {
+        const value = smaAt(bars, index, period)
+        if (value !== null) line.update({ time: bars[index].time, value })
+      }
+    }
 
     async function loadHistory() {
       const res = await fetch(
@@ -48,19 +78,35 @@ export default function BtcChart() {
       const data = await res.json()
       if (cancelled) return
 
-      series.setData(data.map(klineToBar))
+      bars = data.map(klineToBar)
+      series.setData(bars)
+      for (const { period, series: line } of smaSeries) {
+        const points = []
+        for (let i = period - 1; i < bars.length; i++) {
+          points.push({ time: bars[i].time, value: smaAt(bars, i, period) })
+        }
+        line.setData(points)
+      }
       chart.timeScale().fitContent()
 
       ws = new WebSocket(`wss://stream.binance.com:9443/ws/${SYMBOL}@kline_${INTERVAL}`)
       ws.onmessage = (event) => {
         const { k } = JSON.parse(event.data)
-        series.update({
+        const bar = {
           time: Math.floor(k.t / 1000),
           open: parseFloat(k.o),
           high: parseFloat(k.h),
           low: parseFloat(k.l),
           close: parseFloat(k.c),
-        })
+        }
+        series.update(bar)
+
+        if (bars.length && bars[bars.length - 1].time === bar.time) {
+          bars[bars.length - 1] = bar
+        } else {
+          bars.push(bar)
+        }
+        updateSma(bars.length - 1)
       }
     }
 
