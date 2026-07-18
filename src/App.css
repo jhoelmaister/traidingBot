@@ -55,3 +55,17 @@ header p {
   color: #888;
   font-size: 0.85rem;
 }
+
+.size-info {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.7rem;
+  background: #1e222d;
+  border: 1px solid #2a2e39;
+  border-radius: 4px;
+}
+
+.size-info strong {
+  color: #d1d4dc;
+}

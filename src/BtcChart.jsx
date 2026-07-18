@@ -11,7 +11,25 @@ const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
-const FIRST_YEAR = 2017 // BTCUSDT empezó a cotizar en Binance en agosto de 2017
+const FIRST_YEAR = 2017
+const FIRST_MONTH = 8 // BTCUSDT empezó a cotizar en Binance en agosto de 2017
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+async function gzipSize(text) {
+  if (!('CompressionStream' in window)) return null
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))
+  const compressed = await new Response(stream).arrayBuffer()
+  return compressed.byteLength
+}
+
+function monthsSinceListing(year, month) {
+  return (year - FIRST_YEAR) * 12 + (month - FIRST_MONTH) + 1
+}
 
 function klineToBar(k) {
   return {
@@ -44,6 +62,7 @@ export default function BtcChart() {
   const [month, setMonth] = useState(now.getUTCMonth() + 1)
   const [mode, setMode] = useState('live')
   const [status, setStatus] = useState('')
+  const [sizeInfo, setSizeInfo] = useState(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -157,6 +176,7 @@ export default function BtcChart() {
     const myId = ++requestIdRef.current
     wsRef.current?.close()
     setMode('historical')
+    setSizeInfo(null)
 
     const start = Date.UTC(selectedYear, selectedMonth - 1, 1)
     const endExclusive = Date.UTC(
@@ -185,6 +205,21 @@ export default function BtcChart() {
 
     applyBars(all)
     setStatus(`${all.length.toLocaleString('es-AR')} velas cargadas`)
+
+    const json = JSON.stringify(all)
+    const rawBytes = new Blob([json]).size
+    const gzBytes = await gzipSize(json)
+    if (requestIdRef.current !== myId) return
+
+    const totalMonths = monthsSinceListing(now.getUTCFullYear(), now.getUTCMonth() + 1)
+    setSizeInfo({
+      count: all.length,
+      rawBytes,
+      gzBytes,
+      totalMonths,
+      estRaw: rawBytes * totalMonths,
+      estGz: gzBytes != null ? gzBytes * totalMonths : null,
+    })
   }
 
   const isLoading = status.startsWith('Cargando')
@@ -214,6 +249,17 @@ export default function BtcChart() {
         )}
         {status && <span className="status">{status}</span>}
       </div>
+      {sizeInfo && (
+        <div className="size-info">
+          Este mes: {formatBytes(sizeInfo.rawBytes)} JSON
+          {sizeInfo.gzBytes != null && <> ({formatBytes(sizeInfo.gzBytes)} gzip)</>} ·{' '}
+          Histórico completo estimado (~{sizeInfo.totalMonths} meses, desde {FIRST_MONTH}/{FIRST_YEAR}):{' '}
+          <strong>{formatBytes(sizeInfo.estRaw)}</strong>
+          {sizeInfo.estGz != null && (
+            <> / <strong>{formatBytes(sizeInfo.estGz)}</strong> gzip</>
+          )}
+        </div>
+      )}
       <div ref={containerRef} style={{ width: '100%' }} />
     </div>
   )
