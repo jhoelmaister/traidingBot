@@ -98,7 +98,13 @@ export default function CandleChart({ bars, indicators, visibleCount, height = 5
 
     if (indicators.bb) {
       const { upper, middle, lower } = bollinger(closes, indicators.bb.period, indicators.bb.mult)
-      const style = { color: '#94a3b8', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }
+      const style = {
+        color: indicators.bb.color ?? '#94a3b8',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      }
       layers.push(makeLayer(chart.addSeries(LineSeries, { ...style, title: 'BB sup' }), bars, upper))
       layers.push(makeLayer(chart.addSeries(LineSeries, { ...style, lineStyle: 2, title: 'BB media' }), bars, middle))
       layers.push(makeLayer(chart.addSeries(LineSeries, { ...style, title: 'BB inf' }), bars, lower))
@@ -121,19 +127,20 @@ export default function CandleChart({ bars, indicators, visibleCount, height = 5
       paneIndex++
       const series = chart.addSeries(
         LineSeries,
-        { color: '#c084fc', lineWidth: 2, priceLineVisible: false, title: `RSI ${indicators.rsi}` },
+        { color: '#c084fc', lineWidth: 2, priceLineVisible: false, title: `RSI ${indicators.rsi.period}` },
         paneIndex,
       )
       // Las bandas de sobrecompra/sobreventa, como referencia fija.
       for (const level of [70, 30]) {
         series.createPriceLine({ price: level, color: '#64748b', lineWidth: 1, lineStyle: 2, axisLabelVisible: true })
       }
-      layers.push(makeLayer(series, bars, rsi(closes, indicators.rsi)))
+      layers.push(makeLayer(series, bars, rsi(closes, indicators.rsi.period)))
     }
 
     if (indicators.macd) {
       paneIndex++
-      const { line, signal, histogram } = macd(closes)
+      const { fast, slow, signal: signalPeriod } = indicators.macd
+      const { line, signal, histogram } = macd(closes, fast, slow, signalPeriod)
       layers.push(
         makeLayer(
           chart.addSeries(HistogramSeries, { priceScaleId: '', title: 'MACD hist' }, paneIndex),

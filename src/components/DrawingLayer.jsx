@@ -1,27 +1,22 @@
 import { useEffect, useRef } from 'react'
-import { createDrawing, fibLevels, handlesOf, moveHandle, positionMetrics } from '../lib/drawings.js'
+import { createDrawing, handlesOf, moveHandle, positionMetrics, visibleFibLevels } from '../lib/drawings.js'
 import { formatPrice } from '../lib/format.js'
 
 const HIT_RADIUS = 11
 const HANDLE_RADIUS = 5
 const LABEL_FONT = '11px system-ui, sans-serif'
-
-const FIB_COLORS = ['#9598a1', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86']
-const GREEN = '#089981'
-const RED = '#f23645'
 const NEUTRAL = '#b2b5be'
 
-function withAlpha(hex, alpha) {
-  return `${hex}${alpha}`
-}
+// Los colores de los estilos vienen como #rrggbb; les pegamos el alfa en hexa.
+const withAlpha = (hex, alpha) => `${hex}${alpha}`
 
 /**
  * Canvas transparente encima del gráfico: dibuja las herramientas y maneja su
- * creación y arrastre.
+ * creación, arrastre y doble clic para abrir su configuración.
  *
  * El canvas tiene `pointer-events: none` salvo cuando hay una herramienta
- * activa o el puntero está sobre un tirador. Así el gráfico conserva su
- * paneo y zoom, y sólo le "robamos" el mouse cuando de verdad hace falta.
+ * activa o el puntero está sobre un tirador. Así el gráfico conserva su paneo
+ * y zoom, y sólo le "robamos" el mouse cuando de verdad hace falta.
  */
 export default function DrawingLayer({
   chart,
@@ -34,6 +29,7 @@ export default function DrawingLayer({
   onChange,
   onSelect,
   onToolEnd,
+  onOpenSettings,
 }) {
   const canvasRef = useRef(null)
   const drawRef = useRef(null)
@@ -42,7 +38,7 @@ export default function DrawingLayer({
   const cursorRef = useRef(null)
   const propsRef = useRef(null)
 
-  propsRef.current = { drawings, tool, selectedId, onCreate, onChange, onSelect, onToolEnd }
+  propsRef.current = { drawings, tool, selectedId, onCreate, onChange, onSelect, onToolEnd, onOpenSettings }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -88,38 +84,49 @@ export default function DrawingLayer({
     }
 
     function drawFib(d, selected) {
+      const style = d.style
       const x1 = toX(d.x1)
       const x2 = toX(d.x2)
       if (x1 == null || x2 == null) return
+
       const left = Math.min(x1, x2)
       const right = Math.max(x1, x2)
-      const levels = fibLevels(d.p1, d.p2)
+      const levels = visibleFibLevels(d)
+      const extendRight = style.extend === 'right' || style.extend === 'both'
+      const extendLeft = style.extend === 'both'
 
-      // Relleno entre niveles consecutivos, como las bandas de TradingView.
-      for (let i = 0; i < levels.length - 1; i++) {
-        const yA = toY(levels[i].price)
-        const yB = toY(levels[i + 1].price)
-        if (yA == null || yB == null) continue
-        ctx.fillStyle = withAlpha(FIB_COLORS[i % FIB_COLORS.length], '14')
-        ctx.fillRect(left, Math.min(yA, yB), right - left, Math.abs(yB - yA))
+      if (style.background) {
+        for (let i = 0; i < levels.length - 1; i++) {
+          const yA = toY(levels[i].price)
+          const yB = toY(levels[i + 1].price)
+          if (yA == null || yB == null) continue
+          ctx.fillStyle = withAlpha(levels[i].color, '14')
+          ctx.fillRect(left, Math.min(yA, yB), right - left, Math.abs(yB - yA))
+        }
       }
 
-      levels.forEach((level, i) => {
+      for (const level of levels) {
         const y = toY(level.price)
-        if (y == null) return
-        const color = FIB_COLORS[i % FIB_COLORS.length]
-        line(left, y, right, y, color, selected ? 1.6 : 1)
-        // Prolongación punteada hacia la derecha, para leer el nivel a futuro.
-        line(right, y, canvas.clientWidth, y, color, 1, [3, 3])
-        label(`${(level.ratio * 100).toFixed(1)}%  ${formatPrice(level.price)}`, left, y - 8, color)
-      })
+        if (y == null) continue
+        line(left, y, right, y, level.color, selected ? 1.6 : 1)
+        if (extendRight) line(right, y, canvas.clientWidth, y, level.color, 1, [3, 3])
+        if (extendLeft) line(0, y, left, y, level.color, 1, [3, 3])
 
-      const yA = toY(d.p1)
-      const yB = toY(d.p2)
-      if (yA != null && yB != null) line(x1, yA, x2, yB, NEUTRAL, 1, [4, 4])
+        const texto = style.showPrices
+          ? `${(level.ratio * 100).toFixed(1)}%  ${formatPrice(level.price)}`
+          : `${(level.ratio * 100).toFixed(1)}%`
+        label(texto, left, y - 8, level.color)
+      }
+
+      if (style.trendLine) {
+        const yA = toY(d.p1)
+        const yB = toY(d.p2)
+        if (yA != null && yB != null) line(x1, yA, x2, yB, style.trendColor, 1, [4, 4])
+      }
     }
 
     function drawPosition(d, selected) {
+      const style = d.style
       const x1 = toX(d.x1)
       const x2 = toX(d.x2)
       const yEntry = toY(d.p1)
@@ -132,24 +139,28 @@ export default function DrawingLayer({
       const width = Math.max(right - left, 1)
       const metrics = positionMetrics(d)
 
-      ctx.fillStyle = withAlpha(GREEN, '2b')
-      ctx.fillRect(left, Math.min(yEntry, yTarget), width, Math.abs(yTarget - yEntry))
-      ctx.fillStyle = withAlpha(RED, '2b')
-      ctx.fillRect(left, Math.min(yEntry, yStop), width, Math.abs(yStop - yEntry))
+      if (style.background) {
+        ctx.fillStyle = withAlpha(style.profitColor, '2b')
+        ctx.fillRect(left, Math.min(yEntry, yTarget), width, Math.abs(yTarget - yEntry))
+        ctx.fillStyle = withAlpha(style.lossColor, '2b')
+        ctx.fillRect(left, Math.min(yEntry, yStop), width, Math.abs(yStop - yEntry))
+      }
 
-      line(left, yTarget, right, yTarget, GREEN, selected ? 2 : 1.4)
-      line(left, yStop, right, yStop, RED, selected ? 2 : 1.4)
+      line(left, yTarget, right, yTarget, style.profitColor, selected ? 2 : 1.4)
+      line(left, yStop, right, yStop, style.lossColor, selected ? 2 : 1.4)
       line(left, yEntry, right, yEntry, NEUTRAL, 1, [4, 3])
 
+      if (!style.showLabels) return
+
       const signo = metrics.rewardPct >= 0 ? '+' : ''
-      label(`Objetivo ${formatPrice(d.p2)}  ${signo}${metrics.rewardPct.toFixed(2)}%`, left, yTarget - 9, GREEN)
+      label(`Objetivo ${formatPrice(d.p2)}  ${signo}${metrics.rewardPct.toFixed(2)}%`, left, yTarget - 9, style.profitColor)
       label(`Entrada ${formatPrice(d.p1)}`, left, yEntry - 9, NEUTRAL)
-      label(`Stop ${formatPrice(d.stop)}  -${Math.abs(metrics.riskPct).toFixed(2)}%`, left, yStop + 10, RED)
+      label(`Stop ${formatPrice(d.stop)}  -${Math.abs(metrics.riskPct).toFixed(2)}%`, left, yStop + 10, style.lossColor)
 
       const resumen = metrics.valid
         ? `R/R ${metrics.ratio.toFixed(2)}`
         : 'Objetivo o stop del lado equivocado'
-      label(resumen, right, (yTarget + yStop) / 2, metrics.valid ? NEUTRAL : RED, 'right')
+      label(resumen, right, (yTarget + yStop) / 2, metrics.valid ? NEUTRAL : style.lossColor, 'right')
     }
 
     function drawHandles(d, selected) {
@@ -167,6 +178,11 @@ export default function DrawingLayer({
       }
     }
 
+    function paint(d, selected) {
+      if (d.type === 'fib') drawFib(d, selected)
+      else drawPosition(d, selected)
+    }
+
     function draw() {
       const { drawings: list, selectedId: selected } = propsRef.current
       ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
@@ -179,32 +195,26 @@ export default function DrawingLayer({
       ctx.clip()
 
       for (const d of list) {
-        const isSelected = d.id === selected
-        if (d.type === 'fib') drawFib(d, isSelected)
-        else drawPosition(d, isSelected)
-        drawHandles(d, isSelected)
+        paint(d, d.id === selected)
+        drawHandles(d, d.id === selected)
       }
 
       // Vista previa mientras se coloca el segundo punto.
       const draft = draftRef.current
       const cursor = cursorRef.current
       if (draft && cursor) {
-        const preview = createDrawing(draft.type, {
-          x1: draft.x1,
-          p1: draft.p1,
-          x2: cursor.logical,
-          p2: cursor.price,
-        })
         ctx.globalAlpha = 0.75
-        if (preview.type === 'fib') drawFib(preview, false)
-        else drawPosition(preview, false)
+        paint(
+          createDrawing(draft.type, { x1: draft.x1, p1: draft.p1, x2: cursor.logical, p2: cursor.price }),
+          false,
+        )
         ctx.globalAlpha = 1
       }
 
       ctx.restore()
     }
 
-    function hitTest(x, y) {
+    function hitHandle(x, y) {
       const { drawings: list } = propsRef.current
       // De atrás hacia adelante: gana el dibujo de arriba.
       for (let i = list.length - 1; i >= 0; i--) {
@@ -212,10 +222,26 @@ export default function DrawingLayer({
           const hx = toX(handle.x)
           const hy = toY(handle.price)
           if (hx == null || hy == null) continue
-          if (Math.hypot(hx - x, hy - y) <= HIT_RADIUS) {
-            return { id: list[i].id, handle: handle.key }
-          }
+          if (Math.hypot(hx - x, hy - y) <= HIT_RADIUS) return { id: list[i].id, handle: handle.key }
         }
+      }
+      return null
+    }
+
+    // Para el doble clic alcanza con caer dentro del rectángulo del dibujo.
+    function hitBody(x, y) {
+      const { drawings: list } = propsRef.current
+      for (let i = list.length - 1; i >= 0; i--) {
+        const d = list[i]
+        const x1 = toX(d.x1)
+        const x2 = toX(d.x2)
+        if (x1 == null || x2 == null) continue
+        if (x < Math.min(x1, x2) - 4 || x > Math.max(x1, x2) + 4) continue
+
+        const precios = d.type === 'fib' ? visibleFibLevels(d).map((l) => l.price) : [d.p1, d.p2, d.stop]
+        const ys = precios.map(toY).filter((v) => v != null)
+        if (!ys.length) continue
+        if (y >= Math.min(...ys) - 4 && y <= Math.max(...ys) + 4) return d.id
       }
       return null
     }
@@ -225,7 +251,7 @@ export default function DrawingLayer({
       return { x: event.clientX - rect.left, y: event.clientY - rect.top }
     }
 
-    function setCapture(active) {
+    const setCapture = (active) => {
       canvas.style.pointerEvents = active ? 'auto' : 'none'
     }
 
@@ -257,7 +283,7 @@ export default function DrawingLayer({
         return
       }
 
-      const hit = hitTest(x, y)
+      const hit = hitHandle(x, y)
       setCapture(Boolean(hit))
       wrapEl.style.cursor = hit ? 'grab' : ''
     }
@@ -287,14 +313,18 @@ export default function DrawingLayer({
         return
       }
 
-      const hit = hitTest(x, y)
+      const hit = hitHandle(x, y)
       if (hit) {
         event.preventDefault()
         event.stopPropagation()
         dragRef.current = hit
         select(hit.id)
         wrapEl.style.cursor = 'grabbing'
+        return
       }
+
+      const body = hitBody(x, y)
+      if (body) select(body)
     }
 
     function onMouseUp() {
@@ -302,6 +332,18 @@ export default function DrawingLayer({
         dragRef.current = null
         wrapEl.style.cursor = 'grab'
       }
+    }
+
+    // Doble clic sobre un dibujo abre su formulario, como en TradingView.
+    function onDoubleClick(event) {
+      const { onOpenSettings: open, tool: activeTool } = propsRef.current
+      if (activeTool) return
+      const { x, y } = localPoint(event)
+      const id = hitHandle(x, y)?.id ?? hitBody(x, y)
+      if (!id) return
+      event.preventDefault()
+      event.stopPropagation()
+      open(id)
     }
 
     function onKeyDown(event) {
@@ -326,6 +368,7 @@ export default function DrawingLayer({
 
     wrapEl.addEventListener('mousemove', onMouseMove)
     wrapEl.addEventListener('mousedown', onMouseDown)
+    wrapEl.addEventListener('dblclick', onDoubleClick)
     window.addEventListener('mouseup', onMouseUp)
     window.addEventListener('keydown', onKeyDown)
 
@@ -334,6 +377,7 @@ export default function DrawingLayer({
       timeScale.unsubscribeVisibleLogicalRangeChange(draw)
       wrapEl.removeEventListener('mousemove', onMouseMove)
       wrapEl.removeEventListener('mousedown', onMouseDown)
+      wrapEl.removeEventListener('dblclick', onDoubleClick)
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('keydown', onKeyDown)
       wrapEl.style.cursor = ''

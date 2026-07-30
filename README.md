@@ -3,11 +3,11 @@
 Herramienta para mirar precios de Binance sin backend propio. Corre en el navegador y también
 como **aplicación de escritorio** (Windows, macOS y Linux) con el mismo código de `src/`.
 
-Tres vistas:
+Dos vistas:
 
-- **En vivo** — velas en tiempo real por WebSocket, con reconexión automática.
-- **Análisis** — abrís un archivo de precios y lo estudiás: indicadores, cambio de intervalo y
-  una **reproducción** vela por vela, como el modo replay de TradingView.
+- **Análisis** — abrís un archivo de precios y lo estudiás con una interfaz al estilo
+  TradingView: barra lateral de herramientas de dibujo, ventana de indicadores, y una
+  **reproducción** vela por vela como el modo replay.
 - **Descargar datos** — bajás el histórico de Binance por año e intervalo y lo guardás en
   CSV o JSON, listo para volver a abrirlo en Análisis.
 
@@ -18,7 +18,6 @@ Tres vistas:
 - **Electron** — envoltorio de escritorio: la misma app web dentro de una ventana nativa.
 - **API pública de Binance** — sin API key ni servidor intermedio:
   - Histórico: `GET https://api.binance.com/api/v3/klines`
-  - Velas en vivo: `wss://stream.binance.com:9443/ws/<par>@kline_<intervalo>`
 
 ## Cómo correrlo
 
@@ -78,24 +77,31 @@ Se le suelta un archivo (o se elige con el botón) y lee **CSV o JSON**:
 - JSON crudo de la API (array de arrays) o array de objetos.
 - Timestamps en segundos, milisegundos, microsegundos o texto ISO: se detecta la unidad sola.
 
-Una vez cargado:
+La pantalla se organiza como la de TradingView: barra superior con el archivo, el intervalo y
+los botones de indicadores y reproducción; barra lateral izquierda con las herramientas de
+dibujo; y el gráfico ocupando todo lo demás, con la leyenda de precios encima.
 
 - **Intervalo** — reagrupa las velas hacia arriba (de 1m a 5m, 1h, 1d, 1w, 1M…). Nunca ofrece
   un intervalo menor al del archivo, porque ese detalle no existe en los datos.
-- **Medias móviles** — se agregan las que uno quiera: SMA o EMA con cualquier período (EMA 200,
-  SMA 9, lo que sea), cada una con su color, y se quitan de a una.
-- **Indicadores** — Bollinger, volumen, RSI 14 y MACD. Volumen, RSI y MACD van en paneles
-  propios debajo del precio.
-- **Herramientas de dibujo** — Fibonacci, posición larga y posición corta, como en TradingView:
-  se crean con dos clics y después se ajustan arrastrando sus puntos, o escribiendo los precios
-  exactos en la lista de abajo.
-  - *Fibonacci*: niveles 0 / 23,6 / 38,2 / 50 / 61,8 / 78,6 / 100 %, con el precio de cada uno y
-    prolongación punteada hacia la derecha.
+- **Indicadores** (botón `ƒx`) — abre una ventana con todo junto:
+  - *Medias móviles*: agregás las que quieras, SMA o EMA, con cualquier período y color propio.
+  - *Bollinger*: período y desviación configurables.
+  - *Volumen, RSI y MACD*: van en paneles propios debajo del precio, con sus períodos editables
+    (el RSI su período, el MACD sus medias rápida, lenta y de señal).
+- **Herramientas de dibujo** (barra lateral) — Fibonacci, posición larga y posición corta:
+  se crean con dos clics, se ajustan arrastrando sus tiradores, y **doble clic sobre el objeto
+  abre su ventana de configuración** (o el botón *Configurar* de la barra superior).
+  - *Fibonacci*: doce niveles disponibles (0 / 23,6 / 38,2 / 50 / 61,8 / 78,6 / 100 % activos, y
+    1,272 / 1,618 / 2,618 / 3,618 / 4,236 de extensión apagados). En su ventana se prende o apaga
+    cada uno, se le cambia el valor y el color, se elige si ampliar las líneas hacia la derecha o
+    hacia ambos lados, y en la pestaña *Coordenadas* se escriben los dos precios exactos.
   - *Posiciones*: caja verde hacia el objetivo, roja hacia el stop, con el porcentaje de cada
     lado y la relación riesgo/beneficio calculada en vivo. Si arrastrás el objetivo o el stop
-    del lado equivocado, lo avisa en vez de mostrar un R/R sin sentido.
+    del lado equivocado, lo avisa en vez de mostrar un R/R sin sentido. Su ventana permite fijar
+    entrada, objetivo y stop por teclado, y cambiar los colores de las zonas.
   - Los dibujos se reubican solos al cambiar de intervalo: se anclan por tiempo, así que un
     Fibonacci trazado en 1 minuto sigue marcando el mismo tramo cuando pasás a 1 hora.
+- **Objetos** — `Supr` borra el seleccionado y el ícono de papelera borra todos.
 - **Reproducción** — avanza vela por vela a la velocidad elegida (1 a 50 velas/s), con pausa,
   paso adelante/atrás y una barra para saltar a cualquier punto. Los indicadores se recalculan
   sólo con las velas ya reveladas, así que sirve para practicar sin ver el futuro.
@@ -144,7 +150,7 @@ leen los agentes de Antigravity antes de tocar el código.
 
 ```bash
 npm test        # lógica pura, sin navegador (41 casos)
-npm run test:ui # end-to-end: maneja la app real dentro de Electron (30 checks)
+npm run test:ui # end-to-end: maneja la app real dentro de Electron (38 checks)
 ```
 
 `npm test` cubre el parseo de archivos, los indicadores (el RSI se contrasta contra el caso de
@@ -153,14 +159,18 @@ referencia de Wilder), el reagregado de intervalos, la geometría de las herrami
 paginación/reintentos/cancelación de la descarga con un `fetch` simulado.
 
 `npm run test:ui` construye la app, la abre en Electron y la maneja de verdad: carga un CSV,
-agrega y quita medias, dibuja un Fibonacci y una posición larga con clics sobre el gráfico,
-arrastra un tirador, edita el stop a mano, cambia el intervalo y corre el replay.
+agrega una EMA y enciende RSI y MACD desde la ventana de indicadores, dibuja un Fibonacci y una
+posición larga con clics sobre el gráfico, abre sus ventanas con doble clic, apaga un nivel,
+arrastra un tirador, edita el stop por formulario, cambia el intervalo y corre el replay.
 
 ## Estructura
 
 - `src/lib/` — lógica sin UI: parseo de archivos, indicadores, reagregado, cliente de Binance.
 - `src/views/` — una vista por pestaña.
 - `src/components/CandleChart.jsx` — el gráfico con paneles.
+- `src/components/DrawingLayer.jsx` — capa de dibujo sobre el gráfico.
+- `src/components/Modal.jsx`, `IndicatorsDialog.jsx`, `DrawingSettingsDialog.jsx` — las ventanas.
+- `src/components/ChartToolbar.jsx` — la barra lateral de herramientas.
 - `electron/main.cjs` — proceso principal: ventanas, ciclo de vida, instancia única e IPC.
 - `electron/preload.cjs` — puente aislado hacia el renderer (`window.desktop`).
 - `scripts/dev-desktop.mjs` — arranca Vite por su API de Node y recién entonces lanza Electron.

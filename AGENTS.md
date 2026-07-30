@@ -1,7 +1,8 @@
 # Guía del proyecto para agentes (Antigravity, Claude Code, etc.)
 
-Herramienta de precios de cripto con tres vistas: gráfico en vivo, análisis de un archivo de
-precios con indicadores y reproducción, y descarga masiva de históricos de Binance.
+Herramienta de precios de cripto con dos vistas: análisis de un archivo de precios al estilo
+TradingView (indicadores, herramientas de dibujo y reproducción) y descarga masiva de
+históricos de Binance.
 Corre en dos formatos con **el mismo código de `src/`**: web (Vite) y escritorio (Electron).
 
 ## Comandos
@@ -39,13 +40,16 @@ En contenedores o como root hay que pasar `--no-sandbox`: `npm run desktop -- --
 ### UI
 
 - `src/App.jsx` — pestañas y estado compartido del dataset. La vista vive en el hash
-  (`#/live`, `#/analisis`, `#/descargar`) para que Electron pueda abrir ventanas directas.
-- `src/views/LiveView.jsx` — gráfico en vivo por WebSocket, con reconexión.
-- `src/views/AnalysisView.jsx` — carga de archivo, indicadores, cambio de intervalo y replay.
+  (`#/analisis`, `#/descargar`) para que Electron pueda abrir ventanas directas.
+- `src/views/AnalysisView.jsx` — orquesta todo: archivo, intervalo, indicadores, dibujos y replay.
 - `src/views/DownloadView.jsx` — descarga por años e intervalo, con estimación y progreso.
 - `src/components/CandleChart.jsx` — el gráfico con paneles (precio, volumen, RSI, MACD).
 - `src/components/DrawingLayer.jsx` — canvas encima del gráfico: dibuja Fibonacci y posiciones,
-  y maneja su creación y arrastre.
+  y maneja su creación, arrastre y doble clic.
+- `src/components/ChartToolbar.jsx` — barra lateral de herramientas, con íconos SVG inline.
+- `src/components/Modal.jsx` — armazón de las ventanas (título, pestañas, Cancelar/Aceptar).
+- `src/components/IndicatorsDialog.jsx` — formulario de indicadores (medias, BB, volumen, RSI, MACD).
+- `src/components/DrawingSettingsDialog.jsx` — formulario de un dibujo (Estilo / Coordenadas).
 
 ### Escritorio
 
@@ -76,4 +80,8 @@ En contenedores o como root hay que pasar `--no-sandbox`: `npm run desktop -- --
   gráfico pierde el paneo y el zoom.
 - No activar `nodeIntegration` ni desactivar `contextIsolation` en `electron/main.cjs`:
   el renderer carga datos de red y debe seguir sin acceso a Node.
+- `#root` mide exactamente `100svh` con `overflow: hidden` y hay `box-sizing: border-box`
+  global: si la app desborda la ventana aparece y desaparece la barra de scroll, el gráfico
+  cambia de ancho solo y los dibujos se desplazan respecto del puntero.
+- Los diálogos trabajan sobre una copia (`structuredClone`) y recién aplican al Aceptar.
 - Comentarios y textos de UI en español, como el resto del repo.

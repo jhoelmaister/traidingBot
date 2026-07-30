@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
-import LiveView from './views/LiveView.jsx'
 import AnalysisView from './views/AnalysisView.jsx'
 import DownloadView from './views/DownloadView.jsx'
 import { isDesktop } from './lib/saveFile.js'
 import './App.css'
 
 const VIEWS = [
-  { id: 'live', label: 'En vivo' },
   { id: 'analisis', label: 'Análisis' },
   { id: 'descargar', label: 'Descargar datos' },
 ]
@@ -17,7 +15,7 @@ const IDS = new Set(VIEWS.map((v) => v.id))
 // directamente en una pestaña concreta (index.html#/descargar).
 function viewFromHash() {
   const id = window.location.hash.replace(/^#\/?/, '')
-  return IDS.has(id) ? id : 'live'
+  return IDS.has(id) ? id : 'analisis'
 }
 
 export default function App() {
@@ -52,7 +50,6 @@ export default function App() {
         )}
       </header>
 
-      {view === 'live' && <LiveView />}
       {view === 'analisis' && <AnalysisView dataset={dataset} onDataset={setDataset} />}
       {view === 'descargar' && (
         <DownloadView onDataset={setDataset} onGoToAnalysis={() => go('analisis')} />

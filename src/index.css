@@ -1,3 +1,9 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: dark;
   font-synthesis: none;
@@ -12,6 +18,9 @@ body {
   color: #d1d4dc;
 }
 
+/* La app ocupa exactamente la ventana: si sobresaliera, aparecería y
+   desaparecería la barra de scroll y el gráfico cambiaría de ancho solo. */
 #root {
-  min-height: 100svh;
+  height: 100svh;
+  overflow: hidden;
 }

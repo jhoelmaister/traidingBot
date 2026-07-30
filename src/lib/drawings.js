@@ -16,6 +16,51 @@ export const TOOLS = [
   { id: 'short', label: 'Posición corta' },
 ]
 
+// Niveles que ofrece el formulario de Fibonacci. Los de extensión (>1) vienen
+// apagados, igual que en TradingView.
+export const DEFAULT_FIB_LEVELS = [
+  { ratio: 0, color: '#787b86', visible: true },
+  { ratio: 0.236, color: '#f23645', visible: true },
+  { ratio: 0.382, color: '#ff9800', visible: true },
+  { ratio: 0.5, color: '#4caf50', visible: true },
+  { ratio: 0.618, color: '#089981', visible: true },
+  { ratio: 0.786, color: '#00bcd4', visible: true },
+  { ratio: 1, color: '#787b86', visible: true },
+  { ratio: 1.272, color: '#f0b90b', visible: false },
+  { ratio: 1.618, color: '#2962ff', visible: false },
+  { ratio: 2.618, color: '#f23645', visible: false },
+  { ratio: 3.618, color: '#9c27b0', visible: false },
+  { ratio: 4.236, color: '#e91e63', visible: false },
+]
+
+export const EXTEND_MODES = [
+  { value: 'none', label: 'No ampliar' },
+  { value: 'right', label: 'Hacia la derecha' },
+  { value: 'both', label: 'Hacia ambos lados' },
+]
+
+export const DEFAULT_FIB_STYLE = {
+  trendLine: true,
+  trendColor: '#b2b5be',
+  extend: 'right',
+  showPrices: true,
+  background: true,
+}
+
+export const DEFAULT_POSITION_STYLE = {
+  profitColor: '#089981',
+  lossColor: '#f23645',
+  showLabels: true,
+  background: true,
+}
+
+export function defaultStyle(type) {
+  if (type === 'fib') {
+    return { ...DEFAULT_FIB_STYLE, levels: DEFAULT_FIB_LEVELS.map((l) => ({ ...l })) }
+  }
+  return { ...DEFAULT_POSITION_STYLE }
+}
+
 let counter = 0
 export function nextId() {
   counter += 1
@@ -58,11 +103,22 @@ export function positionMetrics({ type, p1: entry, p2: target, stop }) {
 }
 
 export function createDrawing(type, { x1, p1, x2, p2 }) {
-  const drawing = { id: nextId(), type, x1, p1, x2, p2 }
+  const drawing = { id: nextId(), type, x1, p1, x2, p2, style: defaultStyle(type) }
   if (type === 'long' || type === 'short') {
     drawing.stop = defaultStop(type, p1, p2)
   }
   return drawing
+}
+
+/** Niveles visibles de un Fibonacci, ya resueltos a precio. */
+export function visibleFibLevels(drawing) {
+  const levels = drawing.style?.levels ?? DEFAULT_FIB_LEVELS
+  return levels
+    .filter((level) => level.visible)
+    .map((level) => ({
+      ...level,
+      price: drawing.p2 + (drawing.p1 - drawing.p2) * level.ratio,
+    }))
 }
 
 /** Puntos que se pueden arrastrar, en coordenadas del dibujo. */

@@ -9,7 +9,7 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 const INDEX_HTML = path.join(__dirname, '..', 'dist', 'index.html')
 
 // Sólo estas rutas internas pueden abrirse en una ventana nueva.
-const ALLOWED_HASHES = new Set(['#/live', '#/analisis', '#/descargar'])
+const ALLOWED_HASHES = new Set(['#/analisis', '#/descargar'])
 
 const windows = new Set()
 
