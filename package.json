@@ -10,6 +10,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
+    "test": "node --test test/lib.test.mjs test/binance.test.mjs",
+    "test:ui": "npm run build && electron test/ui.electron.cjs",
     "preview": "vite preview",
     "desktop": "node scripts/dev-desktop.mjs",
     "desktop:preview": "npm run build && electron .",

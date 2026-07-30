@@ -1,20 +1,26 @@
-// Proceso principal de Electron: abre la ventana y carga la misma app de Vite.
+// Proceso principal de Electron: abre las ventanas y atiende los pedidos del
+// renderer (guardar archivo, abrir otra ventana).
 // En dev apunta al server de Vite (VITE_DEV_SERVER_URL); empaquetado carga dist/index.html.
-const { app, BrowserWindow, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
+const fs = require('node:fs/promises')
 const path = require('node:path')
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
+const INDEX_HTML = path.join(__dirname, '..', 'dist', 'index.html')
 
-let mainWindow = null
+// Sólo estas rutas internas pueden abrirse en una ventana nueva.
+const ALLOWED_HASHES = new Set(['#/live', '#/analisis', '#/descargar'])
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 820,
-    minWidth: 720,
-    minHeight: 520,
+const windows = new Set()
+
+function createWindow(hash = '') {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 760,
+    minHeight: 540,
     backgroundColor: '#131722',
-    title: 'BTC/USDT en vivo',
+    title: 'BTC/USDT — precios y análisis',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -24,42 +30,69 @@ function createWindow() {
     },
   })
 
+  windows.add(win)
+  win.on('closed', () => windows.delete(win))
+
   // Evita el parpadeo blanco: mostramos recién cuando hay algo pintado.
-  mainWindow.once('ready-to-show', () => mainWindow.show())
+  win.once('ready-to-show', () => win.show())
 
   // Cualquier enlace externo va al navegador del sistema, no a una ventana de Electron.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url)
     return { action: 'deny' }
   })
 
   if (DEV_SERVER_URL) {
-    mainWindow.loadURL(DEV_SERVER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+    win.loadURL(DEV_SERVER_URL + hash)
+    if (windows.size === 1) win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    win.loadFile(INDEX_HTML, hash ? { hash: hash.slice(1) } : undefined)
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+  return win
 }
 
-// Una sola instancia: si se abre de nuevo, enfocamos la ventana existente.
+// Diálogo nativo para guardar los datos descargados.
+ipcMain.handle('save-file', async (event, { name, content }) => {
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  const extension = path.extname(String(name ?? '')).replace('.', '') || 'csv'
+
+  const { canceled, filePath } = await dialog.showSaveDialog(parent, {
+    defaultPath: path.basename(String(name ?? 'datos.csv')),
+    filters: [
+      { name: extension.toUpperCase(), extensions: [extension] },
+      { name: 'Todos los archivos', extensions: ['*'] },
+    ],
+  })
+
+  if (canceled || !filePath) return { saved: false }
+
+  await fs.writeFile(filePath, String(content ?? ''), 'utf8')
+  return { saved: true, path: filePath }
+})
+
+ipcMain.handle('open-window', (_event, hash) => {
+  if (!ALLOWED_HASHES.has(hash)) return false
+  createWindow(hash)
+  return true
+})
+
+// Una sola instancia: si se abre de nuevo, enfocamos una ventana existente.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    const [win] = windows
+    if (!win) return
+    if (win.isMinimized()) win.restore()
+    win.focus()
   })
 
   app.whenReady().then(() => {
     createWindow()
     // En macOS es normal reabrir la ventana desde el dock sin relanzar la app.
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (windows.size === 0) createWindow()
     })
   })
 
