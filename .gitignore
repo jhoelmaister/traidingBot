@@ -15,6 +15,9 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+# Config compartida para VS Code / Antigravity (correr y depurar la app)
+!.vscode/launch.json
+!.vscode/tasks.json
 .idea
 .DS_Store
 *.suo
@@ -22,3 +25,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Electron / electron-builder
+release
