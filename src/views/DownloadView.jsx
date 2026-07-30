@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { INTERVALS } from '../lib/intervals.js'
+import { INTERVALS, intervalLabel } from '../lib/intervals.js'
 import {
   DEFAULT_SYMBOL,
   POPULAR_SYMBOLS,
@@ -25,7 +25,10 @@ function yearOptions() {
 export default function DownloadView({ onDataset, onGoToAnalysis }) {
   const years = useMemo(yearOptions, [])
   const [symbol, setSymbol] = useState(DEFAULT_SYMBOL)
-  const [interval, setInterval] = useState('1h')
+  // 1 minuto es el default a propósito: es la resolución más fina que da
+  // Binance, y desde ella Análisis reconstruye cualquier intervalo mayor.
+  const [interval, setInterval] = useState('1m')
+  const [showInterval, setShowInterval] = useState(false)
   const [fromYear, setFromYear] = useState(years[0])
   const [toYear, setToYear] = useState(years[0])
   const [format, setFormat] = useState('csv')
@@ -152,27 +155,6 @@ export default function DownloadView({ onDataset, onGoToAnalysis }) {
         </label>
 
         <label>
-          Intervalo
-          <select value={interval} onChange={(e) => setInterval(e.target.value)} disabled={downloading}>
-            {INTERVALS.map((i) => (
-              <option key={i.value} value={i.value}>
-                {i.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {interval !== '1m' && (
-          <button
-            onClick={() => setInterval('1m')}
-            disabled={downloading}
-            title="Con velas de 1 minuto podés analizar después en cualquier intervalo"
-          >
-            Usar 1m (sirve para todos)
-          </button>
-        )}
-
-        <label>
           Desde
           <select value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))} disabled={downloading}>
             {years.map((y) => (
@@ -207,6 +189,41 @@ export default function DownloadView({ onDataset, onGoToAnalysis }) {
         ) : (
           <button className="primary" onClick={start} disabled={!symbol.trim() || estimate.candles === 0}>
             Descargar
+          </button>
+        )}
+      </div>
+
+      <div className="panel interval">
+        {interval === '1m' ? (
+          <span>
+            Velas de <strong>1 minuto</strong> — el archivo sirve para analizar en cualquier
+            intervalo.
+          </span>
+        ) : (
+          <span className="warning-text">
+            Velas de <strong>{intervalLabel(interval)}</strong> — con este archivo vas a poder
+            analizar de {intervalLabel(interval)} para arriba, no menos.
+          </span>
+        )}
+
+        {showInterval ? (
+          <>
+            <select value={interval} onChange={(e) => setInterval(e.target.value)} disabled={downloading}>
+              {INTERVALS.map((i) => (
+                <option key={i.value} value={i.value}>
+                  {i.label}
+                </option>
+              ))}
+            </select>
+            {interval !== '1m' && (
+              <button onClick={() => setInterval('1m')} disabled={downloading}>
+                Volver a 1 minuto
+              </button>
+            )}
+          </>
+        ) : (
+          <button className="ghost" onClick={() => setShowInterval(true)}>
+            Cambiar intervalo
           </button>
         )}
       </div>
@@ -265,18 +282,17 @@ export default function DownloadView({ onDataset, onGoToAnalysis }) {
       )}
 
       <div className="panel help">
-        <strong>Qué intervalo conviene bajar</strong>
+        <strong>Por qué 1 minuto</strong>
         <p>
-          <strong>Uno solo alcanza para todos: descargá en 1 minuto.</strong> La pestaña Análisis
-          reagrupa las velas hacia arriba (5m, 15m, 1h, 4h, 1d, semana, mes) desde el mismo archivo,
-          así que con un CSV de 1m tenés todos los intervalos sin volver a descargar. Lo que no puede
-          hacer es al revés: de un archivo de 1 hora no salen velas de 5 minutos, porque ese detalle
-          no está en los datos.
+          Es la resolución más fina que publica Binance, y con un archivo así te alcanza para todo:
+          Análisis reagrupa las velas hacia arriba (5m, 15m, 1h, 4h, 1d, semana, mes) desde el mismo
+          archivo. Al revés no se puede — de un archivo de 1 hora no salen velas de 5 minutos, porque
+          ese detalle no está en los datos.
         </p>
         <p className="muted">
-          El costo es el tamaño: un año en 1 minuto son ~525.600 velas (unos 40 MB en CSV) y tarda un
-          par de minutos. Si sólo vas a mirar gráficos diarios o de 4 horas, bajar en 1 hora son 8.760
-          velas por año y termina en segundos.
+          El único costo es el tamaño: un año en 1 minuto son ~525.600 velas (unos 40 MB en CSV) y
+          tarda un par de minutos. Si vas a bajar muchos años y sólo mirás gráficos diarios, cambiar
+          el intervalo ahorra bastante: un año en 1 hora son 8.760 velas y termina en segundos.
         </p>
         <p className="muted">
           Los datos vienen de la API pública de Binance, de a 1000 velas por petición, con reintentos

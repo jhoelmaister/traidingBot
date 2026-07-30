@@ -172,6 +172,10 @@ label {
   color: var(--muted);
 }
 
+.warning-text {
+  color: #fcd34d;
+}
+
 .error {
   color: #fca5a5;
 }

@@ -102,17 +102,21 @@ Una vez cargado:
 
 ### Descargar datos
 
-Elegís par, intervalo y rango de años. Antes de bajar nada muestra cuántas velas son, cuánto
+Elegís par y rango de años. Antes de bajar nada muestra cuántas velas son, cuánto
 va a pesar y cuántas peticiones implica. La descarga se puede cancelar, reintenta sola si
 Binance limita el ritmo (429) y al terminar abre el diálogo nativo para guardar (en el
 navegador, una descarga común). El botón **Analizar estos datos** lo manda directo a la otra
 vista sin pasar por el disco.
 
-**¿Hay que bajar un archivo por cada intervalo?** No: con uno de **1 minuto** alcanza para
-todos. Análisis reagrupa hacia arriba desde el mismo archivo (5m, 15m, 1h, 4h, 1d, semana, mes).
-Al revés no se puede — de un archivo de 1 hora no salen velas de 5 minutos, porque ese detalle
-no está en los datos. El único costo de bajar en 1m es el tamaño; hay un botón *Usar 1m* al lado
-del selector para no tener que pensarlo.
+**¿Hay que bajar un archivo por cada intervalo?** No, y por eso **la descarga es de 1 minuto por
+defecto**: es la resolución más fina que publica Binance y Análisis reagrupa hacia arriba desde
+ese mismo archivo (5m, 15m, 1h, 4h, 1d, semana, mes). Al revés no se puede — de un archivo de 1
+hora no salen velas de 5 minutos, porque ese detalle no está en los datos.
+
+El intervalo se puede cambiar igual (*Cambiar intervalo*), y tiene sentido si vas a bajar muchos
+años y sólo mirás gráficos diarios: 1 minuto son ~525.600 velas por año contra 8.760 en 1 hora.
+Cuando elegís uno mayor, la app avisa que ese archivo después no va a poder analizarse en
+intervalos más chicos.
 
 Referencia rápida: un año en 1 minuto son ~525.600 velas (~40 MB en CSV, un par de minutos);
 en 1 hora son 8.760 velas y baja en segundos.
@@ -140,7 +144,7 @@ leen los agentes de Antigravity antes de tocar el código.
 
 ```bash
 npm test        # lógica pura, sin navegador (41 casos)
-npm run test:ui # end-to-end: maneja la app real dentro de Electron (28 checks)
+npm run test:ui # end-to-end: maneja la app real dentro de Electron (30 checks)
 ```
 
 `npm test` cubre el parseo de archivos, los indicadores (el RSI se contrasta contra el caso de

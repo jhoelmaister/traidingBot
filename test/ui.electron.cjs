@@ -293,17 +293,30 @@ app.whenReady().then(async () => {
   const estimate = await run(`document.querySelector('.panel.estimate')?.textContent ?? ''`)
   report('la vista de descarga estima velas y peso', /Velas estimadas/.test(estimate) && /Peso aprox/.test(estimate), estimate.replace(/\s+/g, ' ').slice(0, 110))
 
-  // cambiar a 1 minuto sube la estimación y dispara el aviso de volumen
+  const porDefecto = await run(`document.querySelector('.panel.interval')?.textContent ?? ''`)
+  report(
+    'descarga en 1 minuto por defecto',
+    /1 minuto/.test(porDefecto) && /cualquier intervalo/.test(porDefecto),
+    porDefecto.replace(/\s+/g, ' ').slice(0, 100),
+  )
+
+  // El intervalo se puede cambiar, pero avisa que limita el análisis posterior.
+  await run(`[...document.querySelectorAll('.panel.interval button')].find(b => b.textContent.includes('Cambiar intervalo')).click()`)
+  await wait(400)
   await run(`(() => {
-    const selects = document.querySelectorAll('.panel.controls select');
+    const select = document.querySelector('.panel.interval select');
     const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-    setter.call(selects[0], '1m');
-    selects[0].dispatchEvent(new Event('change', { bubbles: true }));
+    setter.call(select, '1d');
+    select.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   })()`)
   await wait(400)
-  const estimate1m = await run(`document.querySelector('.panel.estimate')?.textContent ?? ''`)
-  report('el estimado reacciona al intervalo', estimate1m !== estimate, estimate1m.replace(/\s+/g, ' ').slice(0, 110))
+  const conDiario = await run(`(() => ({
+    estimado: document.querySelector('.panel.estimate')?.textContent ?? '',
+    aviso: document.querySelector('.panel.interval .warning-text')?.textContent ?? '',
+  }))()`)
+  report('el estimado reacciona al intervalo', conDiario.estimado !== estimate, conDiario.estimado.replace(/\s+/g, ' ').slice(0, 100))
+  report('avisa que un intervalo mayor limita el análisis', /no menos/.test(conDiario.aviso), conDiario.aviso.replace(/\s+/g, ' ').slice(0, 90))
 
   const realErrors = errors.filter((m) => !/Failed to fetch|ERR_|net::/i.test(m))
   report('sin errores de consola propios', realErrors.length === 0, realErrors.join(' | ').slice(0, 200))
