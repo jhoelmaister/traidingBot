@@ -162,6 +162,16 @@ export default function DownloadView({ onDataset, onGoToAnalysis }) {
           </select>
         </label>
 
+        {interval !== '1m' && (
+          <button
+            onClick={() => setInterval('1m')}
+            disabled={downloading}
+            title="Con velas de 1 minuto podés analizar después en cualquier intervalo"
+          >
+            Usar 1m (sirve para todos)
+          </button>
+        )}
+
         <label>
           Desde
           <select value={fromYear} onChange={(e) => setFromYear(Number(e.target.value))} disabled={downloading}>
@@ -255,15 +265,23 @@ export default function DownloadView({ onDataset, onGoToAnalysis }) {
       )}
 
       <div className="panel help">
-        <strong>Cómo funciona</strong>
+        <strong>Qué intervalo conviene bajar</strong>
         <p>
+          <strong>Uno solo alcanza para todos: descargá en 1 minuto.</strong> La pestaña Análisis
+          reagrupa las velas hacia arriba (5m, 15m, 1h, 4h, 1d, semana, mes) desde el mismo archivo,
+          así que con un CSV de 1m tenés todos los intervalos sin volver a descargar. Lo que no puede
+          hacer es al revés: de un archivo de 1 hora no salen velas de 5 minutos, porque ese detalle
+          no está en los datos.
+        </p>
+        <p className="muted">
+          El costo es el tamaño: un año en 1 minuto son ~525.600 velas (unos 40 MB en CSV) y tarda un
+          par de minutos. Si sólo vas a mirar gráficos diarios o de 4 horas, bajar en 1 hora son 8.760
+          velas por año y termina en segundos.
+        </p>
+        <p className="muted">
           Los datos vienen de la API pública de Binance, de a 1000 velas por petición, con reintentos
           automáticos si te limita el ritmo. El archivo que se guarda lo lee después la pestaña
           Análisis sin ninguna conversión.
-        </p>
-        <p className="muted">
-          Un año en 1 minuto son ~525.600 velas (unos 40 MB en CSV) y tarda un par de minutos. En 1
-          hora son 8.760 velas y baja en segundos.
         </p>
       </div>
     </div>

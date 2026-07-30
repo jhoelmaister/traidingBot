@@ -296,11 +296,91 @@ label {
   transition: width 0.2s linear;
 }
 
+/* ---------- medias y dibujos ---------- */
+
+.chip.ma {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-right: 0.3rem;
+}
+
+.chip.ma i {
+  width: 9px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+button.x {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 0 0.2rem;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+button.x:hover {
+  background: transparent;
+  color: #fca5a5;
+}
+
+.panel.drawings {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+}
+
+.drawing-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.drawing-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.drawing-row.selected {
+  border-color: var(--accent);
+  background: rgba(41, 98, 255, 0.08);
+}
+
+.drawing-row input[type='number'] {
+  width: 7.5rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- gráfico ---------- */
 
-.chart {
+.chart-wrap {
+  position: relative;
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}
+
+/* El canvas de dibujo sólo captura el mouse cuando hay una herramienta activa
+   o el puntero está sobre un tirador; el resto del tiempo el gráfico manda. */
+.drawing-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }

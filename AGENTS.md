@@ -31,6 +31,8 @@ En contenedores o como root hay que pasar `--no-sandbox`: `npm run desktop -- --
 - `src/lib/resample.js` — reagrupa velas a un intervalo mayor (semana alineada al lunes UTC,
   mes al día 1).
 - `src/lib/intervals.js` — catálogo de intervalos y detección del intervalo de un dataset.
+- `src/lib/drawings.js` — modelo de las herramientas: niveles de Fibonacci, métricas de
+  riesgo/beneficio y reubicación de dibujos entre intervalos (por tiempo).
 - `src/lib/binance.js` — descarga paginada con reintentos ante 429/5xx y cancelación.
 - `src/lib/saveFile.js` — diálogo nativo en escritorio, descarga del navegador en web.
 
@@ -42,6 +44,8 @@ En contenedores o como root hay que pasar `--no-sandbox`: `npm run desktop -- --
 - `src/views/AnalysisView.jsx` — carga de archivo, indicadores, cambio de intervalo y replay.
 - `src/views/DownloadView.jsx` — descarga por años e intervalo, con estimación y progreso.
 - `src/components/CandleChart.jsx` — el gráfico con paneles (precio, volumen, RSI, MACD).
+- `src/components/DrawingLayer.jsx` — canvas encima del gráfico: dibuja Fibonacci y posiciones,
+  y maneja su creación y arrastre.
 
 ### Escritorio
 
@@ -64,6 +68,12 @@ En contenedores o como root hay que pasar `--no-sandbox`: `npm run desktop -- --
   operar sobre un gráfico dado de baja lanza excepción.
 - El replay usa `series.update()` cuando avanza de a una vela y `setData()` sólo al saltar:
   con cientos de miles de velas, rearmar el array en cada paso arrastra.
+- Los dibujos se anclan por **coordenada lógica** (índice de vela, admite fracciones y valores
+  fuera del rango) más precio, no por timestamp: así se pueden arrastrar más allá de la última
+  vela. Al cambiar de intervalo se remapean por tiempo con `remapDrawings`.
+- El canvas de `DrawingLayer` vive con `pointer-events: none` y sólo pasa a `auto` cuando hay
+  una herramienta activa o el puntero está sobre un tirador. Si se deja siempre en `auto`, el
+  gráfico pierde el paneo y el zoom.
 - No activar `nodeIntegration` ni desactivar `contextIsolation` en `electron/main.cjs`:
   el renderer carga datos de red y debe seguir sin acceso a Node.
 - Comentarios y textos de UI en español, como el resto del repo.

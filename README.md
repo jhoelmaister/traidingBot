@@ -82,8 +82,20 @@ Una vez cargado:
 
 - **Intervalo** — reagrupa las velas hacia arriba (de 1m a 5m, 1h, 1d, 1w, 1M…). Nunca ofrece
   un intervalo menor al del archivo, porque ese detalle no existe en los datos.
-- **Indicadores** — SMA 20/50/200, EMA 9/21, Bollinger, volumen, RSI 14 y MACD. Volumen, RSI y
-  MACD van en paneles propios debajo del precio.
+- **Medias móviles** — se agregan las que uno quiera: SMA o EMA con cualquier período (EMA 200,
+  SMA 9, lo que sea), cada una con su color, y se quitan de a una.
+- **Indicadores** — Bollinger, volumen, RSI 14 y MACD. Volumen, RSI y MACD van en paneles
+  propios debajo del precio.
+- **Herramientas de dibujo** — Fibonacci, posición larga y posición corta, como en TradingView:
+  se crean con dos clics y después se ajustan arrastrando sus puntos, o escribiendo los precios
+  exactos en la lista de abajo.
+  - *Fibonacci*: niveles 0 / 23,6 / 38,2 / 50 / 61,8 / 78,6 / 100 %, con el precio de cada uno y
+    prolongación punteada hacia la derecha.
+  - *Posiciones*: caja verde hacia el objetivo, roja hacia el stop, con el porcentaje de cada
+    lado y la relación riesgo/beneficio calculada en vivo. Si arrastrás el objetivo o el stop
+    del lado equivocado, lo avisa en vez de mostrar un R/R sin sentido.
+  - Los dibujos se reubican solos al cambiar de intervalo: se anclan por tiempo, así que un
+    Fibonacci trazado en 1 minuto sigue marcando el mismo tramo cuando pasás a 1 hora.
 - **Reproducción** — avanza vela por vela a la velocidad elegida (1 a 50 velas/s), con pausa,
   paso adelante/atrás y una barra para saltar a cualquier punto. Los indicadores se recalculan
   sólo con las velas ya reveladas, así que sirve para practicar sin ver el futuro.
@@ -95,6 +107,12 @@ va a pesar y cuántas peticiones implica. La descarga se puede cancelar, reinten
 Binance limita el ritmo (429) y al terminar abre el diálogo nativo para guardar (en el
 navegador, una descarga común). El botón **Analizar estos datos** lo manda directo a la otra
 vista sin pasar por el disco.
+
+**¿Hay que bajar un archivo por cada intervalo?** No: con uno de **1 minuto** alcanza para
+todos. Análisis reagrupa hacia arriba desde el mismo archivo (5m, 15m, 1h, 4h, 1d, semana, mes).
+Al revés no se puede — de un archivo de 1 hora no salen velas de 5 minutos, porque ese detalle
+no está en los datos. El único costo de bajar en 1m es el tamaño; hay un botón *Usar 1m* al lado
+del selector para no tener que pensarlo.
 
 Referencia rápida: un año en 1 minuto son ~525.600 velas (~40 MB en CSV, un par de minutos);
 en 1 hora son 8.760 velas y baja en segundos.
@@ -121,14 +139,18 @@ leen los agentes de Antigravity antes de tocar el código.
 ## Tests
 
 ```bash
-npm test        # lógica pura, sin navegador (28 casos)
-npm run test:ui # end-to-end: maneja la app real dentro de Electron
+npm test        # lógica pura, sin navegador (41 casos)
+npm run test:ui # end-to-end: maneja la app real dentro de Electron (28 checks)
 ```
 
 `npm test` cubre el parseo de archivos, los indicadores (el RSI se contrasta contra el caso de
-referencia de Wilder), el reagregado de intervalos y la paginación/reintentos/cancelación de la
-descarga, con un `fetch` simulado. `npm run test:ui` construye la app, la abre en Electron y la
-maneja de verdad: carga un CSV, prende indicadores, cambia el intervalo y corre el replay.
+referencia de Wilder), el reagregado de intervalos, la geometría de las herramientas de dibujo
+(niveles de Fibonacci, riesgo/beneficio, reubicación entre intervalos) y la
+paginación/reintentos/cancelación de la descarga con un `fetch` simulado.
+
+`npm run test:ui` construye la app, la abre en Electron y la maneja de verdad: carga un CSV,
+agrega y quita medias, dibuja un Fibonacci y una posición larga con clics sobre el gráfico,
+arrastra un tirador, edita el stop a mano, cambia el intervalo y corre el replay.
 
 ## Estructura
 

@@ -1,14 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts'
 import { sma, ema, rsi, macd, bollinger } from '../lib/indicators.js'
+import DrawingLayer from './DrawingLayer.jsx'
 
 const UP = '#26a69a'
 const DOWN = '#ef5350'
 const GRID = '#2a2e39'
 const TEXT = '#d1d4dc'
-
-const SMA_COLORS = ['#f0b90b', '#8b5cf6', '#22d3ee', '#f472b6']
-const EMA_COLORS = ['#fb923c', '#4ade80', '#60a5fa', '#e879f9']
 
 /**
  * Una "capa" ata una serie del gráfico con sus valores alineados por índice de
@@ -40,11 +38,14 @@ function pointsUpTo(layer, count) {
   return lo
 }
 
-export default function CandleChart({ bars, indicators, visibleCount, height = 520 }) {
+export default function CandleChart({ bars, indicators, visibleCount, height = 520, drawing }) {
   const containerRef = useRef(null)
+  const wrapRef = useRef(null)
   const chartRef = useRef(null)
   const applyRef = useRef(null)
   const lastCountRef = useRef(0)
+  // La capa de dibujo necesita el gráfico y la serie de velas ya creados.
+  const [api, setApi] = useState(null)
 
   // El gráfico se crea una sola vez y sobrevive a los cambios de datos.
   useEffect(() => {
@@ -80,30 +81,20 @@ export default function CandleChart({ bars, indicators, visibleCount, height = 5
       wickDownColor: DOWN,
     })
 
-    indicators.sma.forEach((period, i) => {
+    // Medias móviles configurables: cada una trae su tipo, período y color.
+    for (const ma of indicators.mas) {
+      const values = ma.type === 'ema' ? ema(closes, ma.period) : sma(closes, ma.period)
       const series = chart.addSeries(LineSeries, {
-        color: SMA_COLORS[i % SMA_COLORS.length],
+        color: ma.color,
         lineWidth: 2,
+        lineStyle: ma.type === 'ema' ? 2 : 0,
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: false,
-        title: `SMA ${period}`,
+        title: `${ma.type.toUpperCase()} ${ma.period}`,
       })
-      layers.push(makeLayer(series, bars, sma(closes, period)))
-    })
-
-    indicators.ema.forEach((period, i) => {
-      const series = chart.addSeries(LineSeries, {
-        color: EMA_COLORS[i % EMA_COLORS.length],
-        lineWidth: 2,
-        lineStyle: 2,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-        title: `EMA ${period}`,
-      })
-      layers.push(makeLayer(series, bars, ema(closes, period)))
-    })
+      layers.push(makeLayer(series, bars, values))
+    }
 
     if (indicators.bb) {
       const { upper, middle, lower } = bollinger(closes, indicators.bb.period, indicators.bb.mult)
@@ -201,9 +192,11 @@ export default function CandleChart({ bars, indicators, visibleCount, height = 5
     apply(visibleCount ?? bars.length, false)
     lastCountRef.current = visibleCount ?? bars.length
     chart.timeScale().fitContent()
+    setApi({ chart, series: candles })
 
     return () => {
       applyRef.current = null
+      setApi(null)
       // Al desmontar, React limpia primero el efecto que creó el gráfico, así
       // que puede estar destruido: tocarlo acá lanzaría "Object is disposed".
       if (chartRef.current !== chart) return
@@ -226,5 +219,12 @@ export default function CandleChart({ bars, indicators, visibleCount, height = 5
     lastCountRef.current = visibleCount
   }, [visibleCount])
 
-  return <div ref={containerRef} className="chart" style={{ height }} />
+  return (
+    <div ref={wrapRef} className="chart-wrap" style={{ height }}>
+      <div ref={containerRef} className="chart" />
+      {api && drawing && (
+        <DrawingLayer chart={api.chart} series={api.series} wrapEl={wrapRef.current} {...drawing} />
+      )}
+    </div>
+  )
 }

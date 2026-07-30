@@ -163,6 +163,130 @@ app.whenReady().then(async () => {
   const back = await run(`Number(document.querySelector('.panel.replay input[type=range]').value)`)
   report('paso adelante y atrás vela por vela', stepped === stillPaused + 1 && back === stepped - 1, `${stillPaused} -> ${stepped} -> ${back}`)
 
+  // --- medias móviles configurables ---
+  const masIniciales = await run(`[...document.querySelectorAll('.chip.ma')].map(c => c.textContent.replace('✕','').trim())`)
+  report('arranca con las medias por defecto', masIniciales.join(',') === 'SMA 20,SMA 50', masIniciales.join(','))
+
+  await run(`(() => {
+    const panel = [...document.querySelectorAll('.panel.controls')].find(p => p.textContent.includes('Medias'));
+    const tipo = panel.querySelector('select');
+    const periodo = panel.querySelector('input[type=number]');
+    const setSelect = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    const setInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setSelect.call(tipo, 'ema');
+    tipo.dispatchEvent(new Event('change', { bubbles: true }));
+    setInput.call(periodo, '200');
+    periodo.dispatchEvent(new Event('input', { bubbles: true }));
+    [...panel.querySelectorAll('button')].find(b => b.textContent === 'Agregar').click();
+    return true;
+  })()`)
+  await wait(900)
+  const masConEma = await run(`[...document.querySelectorAll('.chip.ma')].map(c => c.textContent.replace('✕','').trim())`)
+  report('se puede agregar una EMA con el período que uno quiera', masConEma.includes('EMA 200'), masConEma.join(','))
+
+  await run(`[...document.querySelectorAll('.chip.ma')].find(c => c.textContent.includes('SMA 20')).querySelector('button.x').click()`)
+  await wait(900)
+  const masTrasBorrar = await run(`[...document.querySelectorAll('.chip.ma')].map(c => c.textContent.replace('✕','').trim())`)
+  report('se puede quitar una media', !masTrasBorrar.includes('SMA 20') && masTrasBorrar.includes('EMA 200'), masTrasBorrar.join(','))
+
+  // --- herramientas de dibujo ---
+  const overlay = await run(`!!document.querySelector('canvas.drawing-layer')`)
+  report('existe la capa de dibujo sobre el gráfico', overlay === true)
+
+  // Dos clics sobre el gráfico crean el dibujo (igual que en TradingView).
+  const dosClics = `(nombre, x1, y1, x2, y2) => {
+    const wrap = document.querySelector('.chart-wrap');
+    const rect = wrap.getBoundingClientRect();
+    [...document.querySelectorAll('.panel.controls button')].find(b => b.textContent === nombre).click();
+    return new Promise((resolve) => setTimeout(() => {
+      const click = (dx, dy) => {
+        const opciones = { bubbles: true, clientX: rect.left + dx, clientY: rect.top + dy };
+        wrap.dispatchEvent(new MouseEvent('mousemove', opciones));
+        wrap.dispatchEvent(new MouseEvent('mousedown', opciones));
+      };
+      click(x1, y1);
+      setTimeout(() => { click(x2, y2); resolve(true); }, 150);
+    }, 150));
+  }`
+
+  await run(`(${dosClics})('Fibonacci', 200, 120, 420, 260)`)
+  await wait(900)
+  const trasFib = await run(`[...document.querySelectorAll('.drawing-row')].map(r => r.textContent)`)
+  report('Fibonacci crea un dibujo con dos clics', trasFib.length === 1 && trasFib[0].includes('Fibonacci'), trasFib[0]?.slice(0, 60))
+
+  await run(`(${dosClics})('Posición larga', 250, 300, 480, 180)`)
+  await wait(900)
+  const trasLarga = await run(`(() => {
+    const filas = [...document.querySelectorAll('.drawing-row')];
+    const larga = filas.find(r => r.textContent.includes('Posición larga'));
+    return {
+      total: filas.length,
+      texto: larga ? larga.textContent : null,
+      entrada: larga ? Number(larga.querySelectorAll('input')[0].value) : null,
+      objetivo: larga ? Number(larga.querySelectorAll('input')[1].value) : null,
+      stop: larga ? Number(larga.querySelectorAll('input')[2].value) : null,
+    };
+  })()`)
+  report('la posición larga se crea con entrada, objetivo y stop', trasLarga.total === 2 && trasLarga.entrada > 0, `entrada ${trasLarga.entrada}, objetivo ${trasLarga.objetivo}, stop ${trasLarga.stop}`)
+  report('el objetivo queda arriba de la entrada y el stop abajo', trasLarga.objetivo > trasLarga.entrada && trasLarga.stop < trasLarga.entrada)
+  report('muestra la relación riesgo/beneficio', /R\/R\s*1[.,]00/.test(trasLarga.texto ?? ''), (trasLarga.texto ?? '').slice(-45))
+
+  // Editar el stop a mano cambia el R/R.
+  await run(`(() => {
+    const fila = [...document.querySelectorAll('.drawing-row')].find(r => r.textContent.includes('Posición larga'));
+    const stop = fila.querySelectorAll('input')[2];
+    const entrada = Number(fila.querySelectorAll('input')[0].value);
+    const objetivo = Number(fila.querySelectorAll('input')[1].value);
+    const nuevoStop = entrada - (objetivo - entrada) / 3;  // deja R/R = 3
+    const setInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setInput.call(stop, String(nuevoStop));
+    stop.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`)
+  await wait(700)
+  const trasEditar = await run(`[...document.querySelectorAll('.drawing-row')].find(r => r.textContent.includes('Posición larga'))?.textContent ?? ''`)
+  report('editar el stop a mano recalcula el R/R', /R\/R\s*3[.,]00/.test(trasEditar), trasEditar.slice(-45))
+
+  // --- arrastrar un tirador ---
+  // La entrada quedó donde hicimos el primer clic (250, 300): la bajamos 40px.
+  await run(`(() => {
+    const wrap = document.querySelector('.chart-wrap');
+    const rect = wrap.getBoundingClientRect();
+    const evento = (tipo, dx, dy) => new MouseEvent(tipo, { bubbles: true, clientX: rect.left + dx, clientY: rect.top + dy });
+    wrap.dispatchEvent(evento('mousemove', 250, 300));   // el puntero toma el tirador
+    wrap.dispatchEvent(evento('mousedown', 250, 300));
+    wrap.dispatchEvent(evento('mousemove', 250, 340));   // lo arrastra hacia abajo
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    return true;
+  })()`)
+  await wait(700)
+  const trasArrastrar = await run(`(() => {
+    const fila = [...document.querySelectorAll('.drawing-row')].find(r => r.textContent.includes('Posición larga'));
+    return { entrada: Number(fila.querySelectorAll('input')[0].value), texto: fila.textContent };
+  })()`)
+  report(
+    'arrastrar el tirador de entrada baja el precio de entrada',
+    trasArrastrar.entrada < trasLarga.entrada,
+    `${trasLarga.entrada.toFixed(2)} -> ${trasArrastrar.entrada.toFixed(2)}`,
+  )
+
+  // --- los dibujos sobreviven al cambio de intervalo ---
+  await run(`(() => {
+    const select = document.querySelector('.panel.controls select');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, '15m');
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`)
+  await wait(1200)
+  const trasCambio = await run(`[...document.querySelectorAll('.drawing-row')].length`)
+  report('los dibujos siguen ahí tras cambiar de intervalo', trasCambio === 2, `${trasCambio} dibujos`)
+
+  await run(`[...document.querySelectorAll('.panel.controls button')].find(b => b.textContent === 'Borrar todo')?.click()`)
+  await wait(600)
+  const trasBorrar = await run(`[...document.querySelectorAll('.drawing-row')].length`)
+  report('borrar todo limpia los dibujos', trasBorrar === 0, `${trasBorrar} dibujos`)
+
   // --- vista Descargar ---
   await run(`[...document.querySelectorAll('nav .tab')].find(b => b.textContent.includes('Descargar')).click()`)
   await wait(500)
