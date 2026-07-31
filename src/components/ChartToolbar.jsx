@@ -91,6 +91,7 @@ export default function ChartToolbar({ tool, onTool, onClear, count, magnet, onT
         className={`tool ${magnet ? 'active' : ''}`}
         title={magnet ? 'Desactivar imantación (Magnet Mode)' : 'Activar imantación (Magnet Mode)'}
         aria-label="Modo magnético"
+        aria-pressed={magnet}
         onClick={onToggleMagnet}
       >
         {ICONS.magnet}

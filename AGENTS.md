@@ -41,11 +41,13 @@ En contenedores o como root hay que pasar `--no-sandbox`: `npm run desktop -- --
 
 - `src/App.jsx` — pestañas y estado compartido del dataset. La vista vive en el hash
   (`#/analisis`, `#/descargar`) para que Electron pueda abrir ventanas directas.
-- `src/views/AnalysisView.jsx` — orquesta todo: archivo, intervalo, indicadores, dibujos y replay.
+- `src/views/AnalysisView.jsx` — orquesta todo: archivo, intervalo, indicadores, dibujos, replay
+  y el simulador de trading (balance, posición abierta, órdenes a mercado y límite).
 - `src/views/DownloadView.jsx` — descarga por años e intervalo, con estimación y progreso.
 - `src/components/CandleChart.jsx` — el gráfico con paneles (precio, volumen, RSI, MACD).
-- `src/components/DrawingLayer.jsx` — canvas encima del gráfico: dibuja Fibonacci y posiciones,
-  y maneja su creación, arrastre y doble clic.
+- `src/components/DrawingLayer.jsx` — canvas encima del gráfico: dibuja líneas, Fibonacci y
+  posiciones, y maneja su creación, arrastre (de tiradores y del objeto entero), doble clic y
+  clic derecho.
 - `src/components/ChartToolbar.jsx` — barra lateral de herramientas, con íconos SVG inline.
 - `src/components/Modal.jsx` — armazón de las ventanas (título, pestañas, Cancelar/Aceptar).
 - `src/components/IndicatorsDialog.jsx` — formulario de indicadores (medias, BB, volumen, RSI, MACD).

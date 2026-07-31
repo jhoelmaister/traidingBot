@@ -53,6 +53,11 @@ app.whenReady().then(async () => {
 
   await win.loadFile(path.join(ROOT, 'dist', 'index.html'))
   await wait(1500)
+  // La app recuerda lo configurado para cada archivo: empezamos limpio para que
+  // una corrida anterior no condicione a la siguiente.
+  await win.webContents.executeJavaScript('localStorage.clear()')
+  await win.webContents.reload()
+  await wait(1200)
 
   setTimeout(() => {
     console.log('TIMEOUT: la prueba no terminó')
@@ -104,6 +109,18 @@ app.whenReady().then(async () => {
       }
       return null;
     };
+    // Igual que buscarTirador pero para el cuerpo del objeto (cursor 'move').
+    const buscarCuerpo = (cx, cy) => {
+      const wrap = document.querySelector('.chart-wrap');
+      const rect = wrap.getBoundingClientRect();
+      for (let r = 0; r <= 40; r += 5) {
+        for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+          wrap.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.left + cx + dx, clientY: rect.top + cy + dy }));
+          if (wrap.style.cursor === 'move') return { x: cx + dx, y: cy + dy };
+        }
+      }
+      return null;
+    };
     const contarObjetos = () => {
       const boton = document.querySelector('.chart-toolbar .tool[aria-label="Borrar todos los objetos"]');
       const m = /(\\d+)/.exec(boton?.title ?? '');
@@ -148,8 +165,11 @@ app.whenReady().then(async () => {
   report('detectó el intervalo de origen (1m)', cargado.intervalo === '1m', String(cargado.intervalo))
   report('no ofrece intervalos menores al de origen', cargado.opciones[0] === '1m', cargado.opciones.slice(0, 4).join(','))
   report(
-    'la barra lateral tiene cursor, fibonacci, largo, corto y papelera',
-    cargado.herramientas.length === 5 && /Fibonacci/i.test(cargado.herramientas[1]),
+    'la barra lateral trae las cinco herramientas, el imán y la papelera',
+    cargado.herramientas.length === 8 &&
+      cargado.herramientas.includes('Retroceso de Fibonacci') &&
+      cargado.herramientas.includes('Línea de tendencia') &&
+      cargado.herramientas.includes('Modo magnético'),
     cargado.herramientas.join(' | '),
   )
 
@@ -337,6 +357,9 @@ app.whenReady().then(async () => {
   await run(`(() => {${helpers} porTexto('.modal-tabs .tab', 'Coordenadas').click(); return true; })()`)
   await wait(400)
   const trasArrastrar = await run(`Number(document.querySelector('.modal .field input').value)`)
+  const entradaTrasArrastre = trasArrastrar
+  const objetivoOriginal = coords.campos[1].valor
+  const stopOriginal = await run(`Number([...document.querySelectorAll('.modal .field input')][2].value)`)
   report(
     'arrastrar el tirador de entrada baja el precio de entrada',
     trasArrastrar != null && trasArrastrar < coords.campos[0].valor,
@@ -345,17 +368,124 @@ app.whenReady().then(async () => {
   await run(`(() => {${helpers} porTexto('.modal-foot button', 'Cancelar').click(); return true; })()`)
   await wait(400)
 
+
+  // --- mover el objeto entero arrastrando su cuerpo ---
+  const movimiento = await run(`(() => {${helpers}
+    const punto = buscarCuerpo(300, 345);
+    if (!punto) return { movido: false };
+    const wrap = document.querySelector('.chart-wrap');
+    const rect = wrap.getBoundingClientRect();
+    const evento = (tipo, dx, dy) => new MouseEvent(tipo, { bubbles: true, clientX: rect.left + dx, clientY: rect.top + dy });
+    wrap.dispatchEvent(evento('mousedown', punto.x, punto.y));
+    wrap.dispatchEvent(evento('mousemove', punto.x + 30, punto.y + 25));
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    return { movido: true, punto };
+  })()`)
+  await wait(700)
+  const seleccionadoAlMover = await run(`(() => {${helpers} return texto(document.querySelector('.selected-object')); })()`)
+  report('el arrastre del cuerpo agarra la posición, no otro objeto', /Posición/.test(seleccionadoAlMover ?? ''), seleccionadoAlMover?.slice(0, 20))
+
+  await run(`(() => {${helpers} porTexto('.selected-object button', 'Configurar').click(); return true; })()`)
+  await wait(500)
+  await run(`(() => {${helpers} porTexto('.modal-tabs .tab', 'Coordenadas').click(); return true; })()`)
+  await wait(400)
+  const trasMover = await run(`[...document.querySelectorAll('.modal .field input')].map(i => Number(i.value))`)
+  report(
+    'arrastrar el cuerpo mueve la posición entera',
+    movimiento?.movido === true && trasMover.every((v, i) => v < [entradaTrasArrastre, objetivoOriginal, stopOriginal][i]),
+    `entrada ${trasMover?.[0]?.toFixed(0)}, objetivo ${trasMover?.[1]?.toFixed(0)}, stop ${trasMover?.[2]?.toFixed(0)}`,
+  )
+
+  // --- pestaña de riesgo ---
+  await run(`(() => {${helpers} porTexto('.modal-tabs .tab', 'Riesgo').click(); return true; })()`)
+  await wait(400)
+  const riesgo = await run(`(() => {${helpers}
+    const filas = [...document.querySelectorAll('.modal table.riesgo tr')].map(r => r.textContent);
+    return { filas, campos: [...document.querySelectorAll('.modal .field input')].map(i => Number(i.value)) };
+  })()`)
+  report(
+    'la pestaña Riesgo dimensiona la posición',
+    riesgo.filas.length === 6 && /Cantidad a operar/.test(riesgo.filas.join(' ')) && riesgo.campos[0] === 1000,
+    riesgo.filas[1]?.replace(/\s+/g, ' ').slice(0, 60),
+  )
+  await run(`(() => {${helpers} porTexto('.modal-foot button', 'Cancelar').click(); return true; })()`)
+  await wait(400)
+
+  // --- menú del clic derecho ---
+  const antesDelMenu = await run(`(() => {${helpers} return contarObjetos(); })()`)
+  await run(`(() => {${helpers}
+    const punto = buscarTirador(250, 320) ?? buscarCuerpo(300, 345);
+    const wrap = document.querySelector('.chart-wrap');
+    const rect = wrap.getBoundingClientRect();
+    wrap.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: rect.left + punto.x, clientY: rect.top + punto.y }));
+    return true;
+  })()`)
+  await wait(500)
+  const opciones = await run(`[...document.querySelectorAll('.context-item')].map(b => b.textContent.replace('Supr','').trim())`)
+  report(
+    'el clic derecho abre el menú del objeto',
+    opciones.length === 5 && opciones.includes('Duplicar') && opciones.includes('Invertir'),
+    opciones.join(' | '),
+  )
+
+  await run(`(() => {${helpers} porTexto('.context-item', 'Duplicar').click(); return true; })()`)
+  await wait(600)
+  const trasDuplicar = await run(`(() => {${helpers} return contarObjetos(); })()`)
+  report('Duplicar agrega una copia', trasDuplicar === antesDelMenu + 1, `${antesDelMenu} -> ${trasDuplicar}`)
+
+  // --- deshacer y rehacer ---
+  // Duplicar es una acción del historial: deshacer tiene que quitar la copia.
+  await run(`(() => {${helpers} porTexto('.undo-group button', '↶').click(); return true; })()`)
+  await wait(600)
+  const trasDeshacer = await run(`(() => {${helpers} return contarObjetos(); })()`)
+  report('deshacer revierte la última acción', trasDeshacer === trasDuplicar - 1, `${trasDuplicar} -> ${trasDeshacer}`)
+
+  await run(`(() => {${helpers} porTexto('.undo-group button', '↷').click(); return true; })()`)
+  await wait(600)
+  const trasRehacer = await run(`(() => {${helpers} return contarObjetos(); })()`)
+  report('rehacer la vuelve a aplicar', trasRehacer === trasDuplicar, `${trasDeshacer} -> ${trasRehacer}`)
+
+  // Invertir la copia: de larga pasa a corta.
+  await run(`(() => {${helpers}
+    const punto = buscarCuerpo(360, 345);
+    const wrap = document.querySelector('.chart-wrap');
+    const rect = wrap.getBoundingClientRect();
+    wrap.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: rect.left + (punto?.x ?? 420), clientY: rect.top + (punto?.y ?? 250) }));
+    return true;
+  })()`)
+  await wait(500)
+  const antesInvertir = await run(`(() => {${helpers} return texto(document.querySelector('.selected-object')); })()`)
+  await run(`(() => {${helpers} porTexto('.context-item', 'Invertir').click(); return true; })()`)
+  await wait(600)
+  const trasInvertir = await run(`(() => {${helpers} return texto(document.querySelector('.selected-object')); })()`)
+  report(
+    'Invertir da vuelta la posición',
+    /larga/i.test(antesInvertir) && /corta/i.test(trasInvertir),
+    `${antesInvertir.slice(0, 16)} -> ${trasInvertir.slice(0, 16)}`,
+  )
+
+  // --- imán ---
+  await run(`document.querySelector('.chart-toolbar .tool[aria-label="Modo magnético"]').click()`)
+  await wait(400)
+  const iman = await run(`(() => {${helpers}
+    const boton = document.querySelector('.chart-toolbar .tool[aria-label="Modo magnético"]');
+    return { activo: boton.getAttribute('aria-pressed'), aviso: texto(document.querySelector('.legend .hint')) };
+  })()`)
+  report('el imán se puede activar y se avisa en pantalla', iman.activo === 'true' && /Imán/.test(iman.aviso), iman.aviso)
+  await run(`document.querySelector('.chart-toolbar .tool[aria-label="Modo magnético"]').click()`)
+  await wait(300)
+
   // --- los dibujos sobreviven al cambio de intervalo ---
   await run(`(() => {${helpers} setValor(document.querySelector('.chart-topbar select'), '15m'); return true; })()`)
   await wait(1300)
   const trasCambio = await run(`(() => {${helpers} return contarObjetos(); })()`)
-  report('los objetos siguen ahí tras cambiar de intervalo', trasCambio === 2, `${trasCambio} objetos`)
+  report('los objetos siguen ahí tras cambiar de intervalo', trasCambio === 3, `${trasCambio} objetos`)
 
   // --- borrar ---
   await run(`(() => {${helpers} porTexto('.selected-object button', '✕')?.click(); return true; })()`)
   await wait(600)
   const trasBorrarUno = await run(`(() => {${helpers} return contarObjetos(); })()`)
-  report('se puede borrar el objeto seleccionado', trasBorrarUno === 1, `${trasBorrarUno} objetos`)
+  report('se puede borrar el objeto seleccionado', trasBorrarUno === 2, `${trasBorrarUno} objetos`)
 
   await run(`document.querySelector('.chart-toolbar .tool[aria-label="Borrar todos los objetos"]').click()`)
   await wait(600)
@@ -399,6 +529,42 @@ app.whenReady().then(async () => {
   }))()`)
   report('el estimado reacciona al intervalo', conDiario.estimado !== estimate, conDiario.estimado.replace(/\s+/g, ' ').slice(0, 90))
   report('avisa que un intervalo mayor limita el análisis', /no menos/.test(conDiario.aviso), conDiario.aviso.replace(/\s+/g, ' ').slice(0, 80))
+
+  // --- lo configurado sobrevive a cerrar y volver a abrir ---
+  await run(`(() => {${helpers} porTexto('nav .tab', 'Análisis').click(); return true; })()`)
+  await wait(600)
+  await run(`(${dosClics})('Retroceso de Fibonacci', 240, 150, 470, 300)`)
+  await wait(1200) // el guardado va con retardo, para no escribir en cada tecla
+
+  const antesDeRecargar = await run(`(() => {${helpers}
+    return { objetos: contarObjetos(), intervalo: document.querySelector('.chart-topbar select').value };
+  })()`)
+
+  await win.webContents.reload()
+  await wait(1500)
+  await run(`(() => {
+    const csv = ${JSON.stringify(makeCsv())};
+    const input = document.querySelector('input[type=file]');
+    const dt = new DataTransfer();
+    dt.items.add(new File([csv], 'BTCUSDT-1m-test.csv', { type: 'text/csv' }));
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`)
+  await wait(2500)
+
+  const trasRecargar = await run(`(() => {${helpers}
+    return {
+      objetos: contarObjetos(),
+      intervalo: document.querySelector('.chart-topbar select').value,
+      indicadores: texto(porTexto('.chart-topbar button', 'Indicadores')),
+    };
+  })()`)
+  report(
+    'los objetos y el intervalo vuelven al reabrir el mismo archivo',
+    trasRecargar?.objetos === antesDeRecargar?.objetos && trasRecargar?.intervalo === antesDeRecargar?.intervalo,
+    `${antesDeRecargar?.objetos} objetos en ${antesDeRecargar?.intervalo} -> ${trasRecargar?.objetos} en ${trasRecargar?.intervalo}`,
+  )
 
   const realErrors = errors.filter((m) => !/Failed to fetch|ERR_|net::/i.test(m))
   report('sin errores de consola propios', realErrors.length === 0, realErrors.join(' | ').slice(0, 200))

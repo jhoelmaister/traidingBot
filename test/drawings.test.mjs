@@ -1,8 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  cloneDrawing,
   createDrawing,
+  DEFAULT_RISK,
   defaultStop,
+  moveDrawing,
+  positionRisk,
+  reverseDrawing,
   fibLevels,
   handlesOf,
   logicalAtTime,
@@ -166,3 +171,81 @@ test('trend y horizontal: tiradores y movimiento de manijas', () => {
   assert.equal(hzMovido.p2, 160)
 })
 
+// ---------- mover, invertir, duplicar ----------
+
+test('mover el objeto entero desplaza todos sus puntos', () => {
+  const larga = createDrawing('long', { x1: 10, p1: 100, x2: 30, p2: 120 })
+  const movida = moveDrawing(larga, 5, -10)
+
+  assert.equal(movida.x1, 15)
+  assert.equal(movida.x2, 35)
+  assert.equal(movida.p1, 90)
+  assert.equal(movida.p2, 110)
+  assert.equal(movida.stop, larga.stop - 10)
+  assert.equal(larga.x1, 10, 'el original no se toca')
+  // La forma no cambia: mismo riesgo/beneficio después de moverla.
+  assert.equal(positionMetrics(movida).ratio, positionMetrics(larga).ratio)
+})
+
+test('invertir una posición larga la vuelve corta y refleja objetivo y stop', () => {
+  const larga = createDrawing('long', { x1: 0, p1: 100, x2: 10, p2: 130 })
+  larga.stop = 90
+  const corta = reverseDrawing(larga)
+
+  assert.equal(corta.type, 'short')
+  assert.equal(corta.p1, 100, 'la entrada no se mueve')
+  assert.equal(corta.p2, 70, 'el objetivo pasa abajo')
+  assert.equal(corta.stop, 110, 'el stop pasa arriba')
+  assert.equal(positionMetrics(corta).valid, true)
+  assert.equal(positionMetrics(corta).ratio, positionMetrics(larga).ratio)
+  assert.equal(reverseDrawing(corta).type, 'long', 'invertir dos veces vuelve al original')
+})
+
+test('invertir un Fibonacci intercambia sus extremos', () => {
+  const fib = createDrawing('fib', { x1: 0, p1: 100, x2: 10, p2: 200 })
+  const invertido = reverseDrawing(fib)
+  assert.equal(invertido.p1, 200)
+  assert.equal(invertido.p2, 100)
+  assert.equal(fibLevels(invertido.p1, invertido.p2)[0].price, 100, 'el 0 % cambia de lado')
+})
+
+test('duplicar da un objeto nuevo, desplazado y con id propio', () => {
+  const fib = createDrawing('fib', { x1: 0, p1: 100, x2: 10, p2: 200 })
+  const copia = cloneDrawing(fib, 5, 0)
+
+  assert.notEqual(copia.id, fib.id)
+  assert.equal(copia.x1, 5)
+  assert.equal(copia.p1, 100)
+  copia.style.levels[0].visible = false
+  assert.equal(fib.style.levels[0].visible, true, 'el estilo no queda compartido')
+})
+
+// ---------- dimensionamiento de la posición ----------
+
+test('calcula cuánto arriesgar y cuántas unidades comprar', () => {
+  const larga = createDrawing('long', { x1: 0, p1: 100, x2: 10, p2: 130 })
+  larga.stop = 90
+  larga.risk = { accountSize: 10_000, riskPercent: 2 }
+
+  const r = positionRisk(larga)
+  assert.equal(r.riskAmount, 200, '2 % de 10.000')
+  assert.equal(r.quantity, 20, '200 / 10 de distancia al stop')
+  assert.equal(r.rewardAmount, 600, '20 unidades × 30 de recorrido')
+  assert.equal(r.ratio, 3)
+})
+
+test('sin stop válido no inventa una cantidad', () => {
+  const rota = createDrawing('long', { x1: 0, p1: 100, x2: 10, p2: 130 })
+  rota.stop = 105 // stop arriba de la entrada en una larga
+  const r = positionRisk(rota)
+  assert.equal(r.valid, false)
+  assert.equal(r.quantity, null)
+  assert.equal(r.rewardAmount, null)
+})
+
+test('usa el riesgo por defecto si el dibujo no lo trae', () => {
+  const r = positionRisk({ type: 'long', p1: 100, p2: 110, stop: 95 })
+  assert.equal(r.accountSize, DEFAULT_RISK.accountSize)
+  assert.equal(r.riskPercent, DEFAULT_RISK.riskPercent)
+  assert.ok(r.quantity > 0)
+})

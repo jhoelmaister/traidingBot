@@ -1,9 +1,19 @@
 import { useEffect, useRef } from 'react'
-import { createDrawing, handlesOf, moveHandle, positionMetrics, visibleFibLevels } from '../lib/drawings.js'
-import { formatPrice } from '../lib/format.js'
+import {
+  createDrawing,
+  dashPattern,
+  handlesOf,
+  moveDrawing,
+  moveHandle,
+  positionRisk,
+  visibleFibLevels,
+} from '../lib/drawings.js'
+import { formatNumber, formatPrice } from '../lib/format.js'
 
 const HIT_RADIUS = 11
 const HANDLE_RADIUS = 5
+// Distancia, en píxeles, dentro de la cual el imán engancha a un valor de la vela.
+const MAGNET_PIXELS = 9
 const LABEL_FONT = '11px system-ui, sans-serif'
 const NEUTRAL = '#b2b5be'
 
@@ -30,6 +40,9 @@ export default function DrawingLayer({
   onSelect,
   onToolEnd,
   onOpenSettings,
+  onContextMenu,
+  onCheckpoint,
+  onCommitDrag,
   magnet,
   bars,
 }) {
@@ -40,7 +53,21 @@ export default function DrawingLayer({
   const cursorRef = useRef(null)
   const propsRef = useRef(null)
 
-  propsRef.current = { drawings, tool, selectedId, onCreate, onChange, onSelect, onToolEnd, onOpenSettings, magnet, bars }
+  propsRef.current = {
+    drawings,
+    tool,
+    selectedId,
+    onCreate,
+    onChange,
+    onSelect,
+    onToolEnd,
+    onOpenSettings,
+    onContextMenu,
+    onCheckpoint,
+    onCommitDrag,
+    magnet,
+    bars,
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -53,21 +80,24 @@ export default function DrawingLayer({
     const fromX = (x) => timeScale.coordinateToLogical(x)
     const fromY = (y) => series.coordinateToPrice(y)
 
-    function snapPoint(logical, price) {
+    function snapPoint(logical, price, y) {
       const { magnet: isMagnet, bars: activeBars } = propsRef.current
       if (!isMagnet || !activeBars || !activeBars.length) return { logical, price }
       const idx = Math.round(logical)
       if (idx < 0 || idx >= activeBars.length) return { logical, price }
       const bar = activeBars[idx]
-      const candidates = [bar.open, bar.high, bar.low, bar.close]
 
-      let closestPrice = candidates[0]
-      let minPriceDist = Math.abs(price - candidates[0])
-      for (let i = 1; i < candidates.length; i++) {
-        const dist = Math.abs(price - candidates[i])
-        if (dist < minPriceDist) {
-          minPriceDist = dist
-          closestPrice = candidates[i]
+      // Sólo enganchamos si el puntero está cerca del valor; si no, el imán
+      // pelearía con el usuario cuando quiere un precio intermedio.
+      const cerca = y == null ? null : fromY(y + MAGNET_PIXELS)
+      let tolerancia = cerca == null ? Infinity : Math.abs(price - cerca)
+
+      let closestPrice = price
+      for (const value of [bar.open, bar.high, bar.low, bar.close]) {
+        const dist = Math.abs(price - value)
+        if (dist <= tolerancia) {
+          tolerancia = dist
+          closestPrice = value
         }
       }
       return { logical: idx, price: closestPrice }
@@ -130,14 +160,19 @@ export default function DrawingLayer({
       for (const level of levels) {
         const y = toY(level.price)
         if (y == null) continue
-        line(left, y, right, y, level.color, selected ? 1.6 : 1)
+        line(left, y, right, y, level.color, (level.width ?? 1) + (selected ? 0.6 : 0), dashPattern(level.dash))
         if (extendRight) line(right, y, canvas.clientWidth, y, level.color, 1, [3, 3])
         if (extendLeft) line(0, y, left, y, level.color, 1, [3, 3])
 
-        const texto = style.showPrices
-          ? `${(level.ratio * 100).toFixed(1)}%  ${formatPrice(level.price)}`
-          : `${(level.ratio * 100).toFixed(1)}%`
-        label(texto, left, y - 8, level.color)
+        const porcentaje = `${(level.ratio * 100).toFixed(1)}%`
+        const texto =
+          style.labelContent === 'percent'
+            ? porcentaje
+            : style.labelContent === 'price'
+              ? formatPrice(level.price)
+              : `${porcentaje}  ${formatPrice(level.price)}`
+        if (style.labelPosition === 'right') label(texto, right, y - 8, level.color, 'right')
+        else label(texto, left, y - 8, level.color)
       }
 
       if (style.trendLine) {
@@ -159,7 +194,7 @@ export default function DrawingLayer({
       const left = Math.min(x1, x2)
       const right = Math.max(x1, x2)
       const width = Math.max(right - left, 1)
-      const metrics = positionMetrics(d)
+      const metrics = positionRisk(d)
 
       if (style.background) {
         ctx.fillStyle = withAlpha(style.profitColor, '2b')
@@ -175,12 +210,26 @@ export default function DrawingLayer({
       if (!style.showLabels) return
 
       const signo = metrics.rewardPct >= 0 ? '+' : ''
-      label(`Objetivo ${formatPrice(d.p2)}  ${signo}${metrics.rewardPct.toFixed(2)}%`, left, yTarget - 9, style.profitColor)
-      label(`Entrada ${formatPrice(d.p1)}`, left, yEntry - 9, NEUTRAL)
-      label(`Stop ${formatPrice(d.stop)}  -${Math.abs(metrics.riskPct).toFixed(2)}%`, left, yStop + 10, style.lossColor)
+      const ganancia = metrics.rewardAmount != null ? ` · ${formatPrice(metrics.rewardAmount)}` : ''
+      const perdida = metrics.quantity != null ? ` · ${formatPrice(metrics.riskAmount)}` : ''
 
+      label(
+        `Objetivo ${formatPrice(d.p2)}  ${signo}${metrics.rewardPct.toFixed(2)}%${ganancia}`,
+        left,
+        yTarget - 9,
+        style.profitColor,
+      )
+      label(`Entrada ${formatPrice(d.p1)}`, left, yEntry - 9, NEUTRAL)
+      label(
+        `Stop ${formatPrice(d.stop)}  -${Math.abs(metrics.riskPct).toFixed(2)}%${perdida}`,
+        left,
+        yStop + 10,
+        style.lossColor,
+      )
+
+      const cantidad = metrics.quantity != null ? ` · ${formatNumber(Number(metrics.quantity.toPrecision(4)))} u` : ''
       const resumen = metrics.valid
-        ? `R/R ${metrics.ratio.toFixed(2)}`
+        ? `R/R ${metrics.ratio.toFixed(2)}${cantidad}`
         : 'Objetivo o stop del lado equivocado'
       label(resumen, right, (yTarget + yStop) / 2, metrics.valid ? NEUTRAL : style.lossColor, 'right')
     }
@@ -330,11 +379,21 @@ export default function DrawingLayer({
         let logical = fromX(x)
         let price = fromY(y)
         if (logical == null || price == null) return
-        const snapped = snapPoint(logical, price)
+        const snapped = snapPoint(logical, price, y)
         logical = snapped.logical
         price = snapped.price
+
         const target = list.find((d) => d.id === drag.id)
-        if (target) change(moveHandle(target, drag.handle, { x: logical, price }))
+        if (!target) return
+
+        if (drag.handle) {
+          // Un arrastre es un solo paso de deshacer: mientras dura no se anota.
+          change(moveHandle(target, drag.handle, { x: logical, price }), { dragging: true })
+        } else {
+          change(moveDrawing(target, logical - drag.lastLogical, price - drag.lastPrice), { dragging: true })
+          drag.lastLogical = logical
+          drag.lastPrice = price
+        }
         return
       }
 
@@ -344,7 +403,7 @@ export default function DrawingLayer({
         let logical = fromX(x)
         let price = fromY(y)
         if (logical != null && price != null) {
-          const snapped = snapPoint(logical, price)
+          const snapped = snapPoint(logical, price, y)
           logical = snapped.logical
           price = snapped.price
           cursorRef.current = { logical, price }
@@ -353,20 +412,34 @@ export default function DrawingLayer({
         return
       }
 
-      const hit = hitHandle(x, y)
-      setCapture(Boolean(hit))
-      wrapEl.style.cursor = hit ? 'grab' : ''
+      if (hitHandle(x, y)) {
+        setCapture(true)
+        wrapEl.style.cursor = 'grab'
+      } else if (hitBody(x, y)) {
+        setCapture(true)
+        wrapEl.style.cursor = 'move'
+      } else {
+        setCapture(false)
+        wrapEl.style.cursor = ''
+      }
     }
 
     function onMouseDown(event) {
-      const { tool: activeTool, onCreate: create, onSelect: select, onToolEnd: endTool } = propsRef.current
+      const {
+        tool: activeTool,
+        onCreate: create,
+        onSelect: select,
+        onToolEnd: endTool,
+        onCheckpoint: checkpoint,
+      } = propsRef.current
+      if (event.button !== 0) return
       const { x, y } = localPoint(event)
       let logical = fromX(x)
       let price = fromY(y)
 
       if (activeTool) {
         if (logical == null || price == null) return
-        const snapped = snapPoint(logical, price)
+        const snapped = snapPoint(logical, price, y)
         logical = snapped.logical
         price = snapped.price
         event.preventDefault()
@@ -397,21 +470,43 @@ export default function DrawingLayer({
       if (hit) {
         event.preventDefault()
         event.stopPropagation()
+        checkpoint()
         dragRef.current = hit
         select(hit.id)
         wrapEl.style.cursor = 'grabbing'
         return
       }
 
+      // Sobre el cuerpo: seleccionar y, si se arrastra, mover el objeto entero.
       const body = hitBody(x, y)
-      if (body) select(body)
+      if (body && logical != null && price != null) {
+        event.preventDefault()
+        event.stopPropagation()
+        select(body)
+        checkpoint()
+        dragRef.current = { id: body, lastLogical: logical, lastPrice: price }
+        wrapEl.style.cursor = 'grabbing'
+      }
     }
 
     function onMouseUp() {
-      if (dragRef.current) {
-        dragRef.current = null
-        wrapEl.style.cursor = 'grab'
-      }
+      if (!dragRef.current) return
+      dragRef.current = null
+      wrapEl.style.cursor = 'grab'
+      // Recién acá anotamos el resultado: el arrastre entero es un solo paso.
+      propsRef.current.onCommitDrag?.()
+    }
+
+    // Clic derecho sobre un objeto: menú de Configurar / Duplicar / Invertir…
+    function onContext(event) {
+      const { onContextMenu: abrirMenu, onSelect: select } = propsRef.current
+      const { x, y } = localPoint(event)
+      const id = hitHandle(x, y)?.id ?? hitBody(x, y)
+      if (!id || !abrirMenu) return
+      event.preventDefault()
+      event.stopPropagation()
+      select(id)
+      abrirMenu({ id, x: event.clientX, y: event.clientY })
     }
 
     // Doble clic sobre un dibujo abre su formulario, como en TradingView.
@@ -449,6 +544,7 @@ export default function DrawingLayer({
     wrapEl.addEventListener('mousemove', onMouseMove)
     wrapEl.addEventListener('mousedown', onMouseDown)
     wrapEl.addEventListener('dblclick', onDoubleClick)
+    wrapEl.addEventListener('contextmenu', onContext)
     window.addEventListener('mouseup', onMouseUp)
     window.addEventListener('keydown', onKeyDown)
 
@@ -458,6 +554,7 @@ export default function DrawingLayer({
       wrapEl.removeEventListener('mousemove', onMouseMove)
       wrapEl.removeEventListener('mousedown', onMouseDown)
       wrapEl.removeEventListener('dblclick', onDoubleClick)
+      wrapEl.removeEventListener('contextmenu', onContext)
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('keydown', onKeyDown)
       wrapEl.style.cursor = ''

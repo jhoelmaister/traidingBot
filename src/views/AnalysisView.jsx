@@ -3,10 +3,12 @@ import CandleChart from '../components/CandleChart.jsx'
 import ChartToolbar from '../components/ChartToolbar.jsx'
 import IndicatorsDialog from '../components/IndicatorsDialog.jsx'
 import DrawingSettingsDialog from '../components/DrawingSettingsDialog.jsx'
+import ContextMenu from '../components/ContextMenu.jsx'
 import { parseKlines } from '../lib/klines.js'
 import { resample } from '../lib/resample.js'
 import { detectInterval, intervalsAtLeast, intervalLabel, intervalMs } from '../lib/intervals.js'
-import { describe, remapDrawings } from '../lib/drawings.js'
+import { cloneDrawing, describe, remapDrawings, reverseDrawing } from '../lib/drawings.js'
+import { loadWorkspace, saveWorkspace, workspaceKey } from '../lib/storage.js'
 import { formatDate, formatNumber, formatPrice } from '../lib/format.js'
 
 const DEFAULT_INDICATORS = {
@@ -34,7 +36,7 @@ export default function AnalysisView({ dataset, onDataset }) {
     try {
       const saved = localStorage.getItem('tradingview_indicators')
       return saved ? JSON.parse(saved) : DEFAULT_INDICATORS
-    } catch (e) {
+    } catch {
       return DEFAULT_INDICATORS
     }
   })
@@ -42,7 +44,9 @@ export default function AnalysisView({ dataset, onDataset }) {
   useEffect(() => {
     try {
       localStorage.setItem('tradingview_indicators', JSON.stringify(indicators))
-    } catch (e) {}
+    } catch {
+      // Sin persistencia (modo privado o storage lleno): seguimos igual.
+    }
   }, [indicators])
 
   const [replay, setReplay] = useState(null)
@@ -91,6 +95,7 @@ export default function AnalysisView({ dataset, onDataset }) {
   const [tool, setTool] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [dialog, setDialog] = useState(null) // null | 'indicadores' | id de un dibujo
+  const [menu, setMenu] = useState(null) // { id, x, y } del clic derecho
   const fileInputRef = useRef(null)
 
   // Estados de Simulación de Trading (Paper Trading)
@@ -102,16 +107,29 @@ export default function AnalysisView({ dataset, onDataset }) {
   const [orderAmount, setOrderAmount] = useState('0.1')
 
   const sourceInterval = useMemo(() => (dataset ? detectInterval(dataset.bars) : null), [dataset])
+  const storageKey = useMemo(() => workspaceKey(dataset), [dataset])
+  const loadedKeyRef = useRef(null)
 
-  // Datos nuevos: volvemos a la resolución nativa y limpiamos lo dibujado y simulación.
+  // Al abrir un archivo recuperamos lo que se había dibujado para él; los
+  // indicadores son globales (los guarda el efecto de arriba).
   useEffect(() => {
-    setIntervalValue(sourceInterval?.value ?? null)
+    const guardado = loadWorkspace(storageKey)
+    setIntervalValue(guardado?.interval ?? sourceInterval?.value ?? null)
+    setMagnet(Boolean(guardado?.magnet))
     setReplay(null)
-    clearHistory([])
+    clearHistory(guardado?.drawings ?? [])
     setSelectedId(null)
     setTool(null)
     resetSimulation()
-  }, [sourceInterval, dataset])
+    loadedKeyRef.current = storageKey
+  }, [sourceInterval, dataset, storageKey])
+
+  // Y lo vamos guardando mientras se trabaja, sin escribir en cada tecla.
+  useEffect(() => {
+    if (!storageKey || loadedKeyRef.current !== storageKey) return
+    const id = window.setTimeout(() => saveWorkspace(storageKey, { interval, drawings, magnet }), 400)
+    return () => window.clearTimeout(id)
+  }, [storageKey, interval, drawings, magnet])
 
   const bars = useMemo(() => {
     if (!dataset) return []
@@ -153,17 +171,48 @@ export default function AnalysisView({ dataset, onDataset }) {
         setDrawings((current) => [...current, drawing])
         setSelectedId(drawing.id)
       },
-      onChange: (drawing) =>
-        setDrawings((current) => current.map((d) => (d.id === drawing.id ? drawing : d))),
+      onChange: (drawing, options) =>
+        setDrawings(
+          (current) => current.map((d) => (d.id === drawing.id ? drawing : d)),
+          options?.dragging === true,
+        ),
+      // Al agarrar anotamos el estado previo y al soltar el final: así el
+      // arrastre entero es un solo paso de deshacer.
+      onCheckpoint: () => setDrawings((current) => current),
+      onCommitDrag: () => setDrawings((current) => current),
       onSelect: setSelectedId,
       onToolEnd: () => setTool(null),
       onOpenSettings: (id) => {
         setSelectedId(id)
         setDialog(id)
       },
+      onContextMenu: setMenu,
     }),
     [drawings, tool, selectedId, magnet, bars],
   )
+
+  const borrarObjeto = (id) => {
+    setDrawings((current) => current.filter((d) => d.id !== id))
+    setSelectedId(null)
+  }
+
+  const duplicarObjeto = (id) => {
+    const original = drawings.find((d) => d.id === id)
+    if (!original) return
+    // Desplazada un poco para que se vea que son dos.
+    const copia = cloneDrawing(original, Math.max(1, Math.round(bars.length * 0.01)), 0)
+    setDrawings((current) => [...current, copia])
+    setSelectedId(copia.id)
+  }
+
+  const invertirObjeto = (id) =>
+    setDrawings((current) => current.map((d) => (d.id === id ? reverseDrawing(d) : d)))
+
+  const alFrente = (id) =>
+    setDrawings((current) => {
+      const objetivo = current.find((d) => d.id === id)
+      return objetivo ? [...current.filter((d) => d.id !== id), objetivo] : current
+    })
 
   const availableIntervals = sourceInterval ? intervalsAtLeast(sourceInterval.ms) : []
   const visibleCount = replay ? replay.index : bars.length
@@ -377,6 +426,8 @@ export default function AnalysisView({ dataset, onDataset }) {
       })
       return remaining
     })
+    // Sólo al avanzar la reproducción: agregar más deps re-ejecutaría órdenes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replay?.index])
 
   async function loadFile(file) {
@@ -499,6 +550,15 @@ export default function AnalysisView({ dataset, onDataset }) {
           ⏵⏵ Reproducción
         </button>
 
+        <span className="undo-group">
+          <button onClick={undo} title="Deshacer (Ctrl+Z)">
+            ↶
+          </button>
+          <button onClick={redo} title="Rehacer (Ctrl+Y)">
+            ↷
+          </button>
+        </span>
+
         {selected && (
           <span className="selected-object">
             {describe(selected)}
@@ -554,6 +614,7 @@ export default function AnalysisView({ dataset, onDataset }) {
                 C {formatPrice(currentBar.close)}
               </span>
               {tool && <span className="hint">Clic para el primer punto, clic para el segundo · Esc cancela</span>}
+              {!tool && magnet && <span className="hint">Imán activo</span>}
             </div>
           )}
           <CandleChart
@@ -732,6 +793,24 @@ export default function AnalysisView({ dataset, onDataset }) {
             </div>
           )}
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: 'Configurar…', onClick: () => setDialog(menu.id) },
+            { label: 'Duplicar', onClick: () => duplicarObjeto(menu.id) },
+            ...(drawings.find((d) => d.id === menu.id)?.type === 'horizontal'
+              ? []
+              : [{ label: 'Invertir', onClick: () => invertirObjeto(menu.id) }]),
+            { label: 'Traer al frente', onClick: () => alFrente(menu.id) },
+            { separator: true },
+            { label: 'Eliminar', shortcut: 'Supr', danger: true, onClick: () => borrarObjeto(menu.id) },
+          ]}
+        />
       )}
 
       {dialog === 'indicadores' && (

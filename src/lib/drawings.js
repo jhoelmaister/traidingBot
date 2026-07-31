@@ -21,19 +21,40 @@ export const TOOLS = [
 // Niveles que ofrece el formulario de Fibonacci. Los de extensión (>1) vienen
 // apagados, igual que en TradingView.
 export const DEFAULT_FIB_LEVELS = [
-  { ratio: 0, color: '#787b86', visible: true },
-  { ratio: 0.236, color: '#f23645', visible: true },
-  { ratio: 0.382, color: '#ff9800', visible: true },
-  { ratio: 0.5, color: '#4caf50', visible: true },
-  { ratio: 0.618, color: '#089981', visible: true },
-  { ratio: 0.786, color: '#00bcd4', visible: true },
-  { ratio: 1, color: '#787b86', visible: true },
-  { ratio: 1.272, color: '#f0b90b', visible: false },
-  { ratio: 1.618, color: '#2962ff', visible: false },
-  { ratio: 2.618, color: '#f23645', visible: false },
-  { ratio: 3.618, color: '#9c27b0', visible: false },
-  { ratio: 4.236, color: '#e91e63', visible: false },
+  { ratio: 0, color: '#787b86', visible: true, width: 1, dash: 'solid' },
+  { ratio: 0.236, color: '#f23645', visible: true, width: 1, dash: 'solid' },
+  { ratio: 0.382, color: '#ff9800', visible: true, width: 1, dash: 'solid' },
+  { ratio: 0.5, color: '#4caf50', visible: true, width: 1, dash: 'solid' },
+  { ratio: 0.618, color: '#089981', visible: true, width: 1, dash: 'solid' },
+  { ratio: 0.786, color: '#00bcd4', visible: true, width: 1, dash: 'solid' },
+  { ratio: 1, color: '#787b86', visible: true, width: 1, dash: 'solid' },
+  { ratio: 1.272, color: '#f0b90b', visible: false, width: 1, dash: 'dashed' },
+  { ratio: 1.618, color: '#2962ff', visible: false, width: 1, dash: 'dashed' },
+  { ratio: 2.618, color: '#f23645', visible: false, width: 1, dash: 'dashed' },
+  { ratio: 3.618, color: '#9c27b0', visible: false, width: 1, dash: 'dashed' },
+  { ratio: 4.236, color: '#e91e63', visible: false, width: 1, dash: 'dashed' },
 ]
+
+export const DASH_STYLES = [
+  { value: 'solid', label: 'Continua', pattern: null },
+  { value: 'dashed', label: 'Rayas', pattern: [6, 4] },
+  { value: 'dotted', label: 'Puntos', pattern: [2, 3] },
+]
+
+export const LABEL_POSITIONS = [
+  { value: 'left', label: 'Izquierda' },
+  { value: 'right', label: 'Derecha' },
+]
+
+export const LABEL_CONTENTS = [
+  { value: 'both', label: 'Porcentaje y precio' },
+  { value: 'percent', label: 'Sólo porcentaje' },
+  { value: 'price', label: 'Sólo precio' },
+]
+
+export function dashPattern(value) {
+  return DASH_STYLES.find((d) => d.value === value)?.pattern ?? null
+}
 
 export const EXTEND_MODES = [
   { value: 'none', label: 'No ampliar' },
@@ -45,8 +66,9 @@ export const DEFAULT_FIB_STYLE = {
   trendLine: true,
   trendColor: '#b2b5be',
   extend: 'right',
-  showPrices: true,
   background: true,
+  labelPosition: 'left',
+  labelContent: 'both',
 }
 
 export const DEFAULT_POSITION_STYLE = {
@@ -55,6 +77,10 @@ export const DEFAULT_POSITION_STYLE = {
   showLabels: true,
   background: true,
 }
+
+// Tamaño de cuenta y riesgo asumido, para que la posición diga cuántas unidades
+// operar y cuánta plata se juega — como el panel de la herramienta de TradingView.
+export const DEFAULT_RISK = { accountSize: 1000, riskPercent: 1 }
 
 export const DEFAULT_LINE_STYLE = {
   lineColor: '#2962ff',
@@ -117,8 +143,67 @@ export function createDrawing(type, { x1, p1, x2, p2 }) {
   const drawing = { id: nextId(), type, x1, p1, x2, p2, style: defaultStyle(type) }
   if (type === 'long' || type === 'short') {
     drawing.stop = defaultStop(type, p1, p2)
+    drawing.risk = { ...DEFAULT_RISK }
   }
   return drawing
+}
+
+/** Desplaza el dibujo entero: se arrastra el cuerpo, no un tirador. */
+export function moveDrawing(drawing, deltaX, deltaPrice) {
+  const next = {
+    ...drawing,
+    x1: drawing.x1 + deltaX,
+    x2: drawing.x2 + deltaX,
+    p1: drawing.p1 + deltaPrice,
+    p2: drawing.p2 + deltaPrice,
+  }
+  if (drawing.stop != null) next.stop = drawing.stop + deltaPrice
+  return next
+}
+
+/**
+ * Invierte el dibujo. En una posición la da vuelta (larga ↔ corta, con objetivo
+ * y stop reflejados respecto de la entrada, como el "reverse" de TradingView);
+ * en Fibonacci y en la línea de tendencia intercambia los extremos. La línea
+ * horizontal no tiene nada que invertir.
+ */
+export function reverseDrawing(drawing) {
+  if (drawing.type === 'long' || drawing.type === 'short') {
+    return {
+      ...drawing,
+      type: drawing.type === 'long' ? 'short' : 'long',
+      p2: 2 * drawing.p1 - drawing.p2,
+      stop: 2 * drawing.p1 - drawing.stop,
+    }
+  }
+  if (drawing.type === 'horizontal') return drawing
+  return { ...drawing, p1: drawing.p2, p2: drawing.p1 }
+}
+
+/** Copia desplazada, para duplicar un objeto sin volver a dibujarlo. */
+export function cloneDrawing(drawing, deltaX = 0, deltaPrice = 0) {
+  return { ...structuredClone(moveDrawing(drawing, deltaX, deltaPrice)), id: nextId() }
+}
+
+/**
+ * Métricas de la posición más el dimensionamiento: con el tamaño de cuenta y el
+ * porcentaje de riesgo sale cuánta plata se arriesga y cuántas unidades operar.
+ */
+export function positionRisk(drawing) {
+  const metrics = positionMetrics(drawing)
+  const { accountSize, riskPercent } = drawing.risk ?? DEFAULT_RISK
+
+  const riskAmount = (accountSize * riskPercent) / 100
+  const quantity = metrics.risk > 0 ? riskAmount / metrics.risk : null
+
+  return {
+    ...metrics,
+    accountSize,
+    riskPercent,
+    riskAmount,
+    quantity,
+    rewardAmount: quantity != null && metrics.reward > 0 ? quantity * metrics.reward : null,
+  }
 }
 
 /** Niveles visibles de un Fibonacci, ya resueltos a precio. */

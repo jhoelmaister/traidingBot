@@ -88,7 +88,8 @@ dibujo; y el gráfico ocupando todo lo demás, con la leyenda de precios encima.
   - *Bollinger*: período y desviación configurables.
   - *Volumen, RSI y MACD*: van en paneles propios debajo del precio, con sus períodos editables
     (el RSI su período, el MACD sus medias rápida, lenta y de señal).
-- **Herramientas de dibujo** (barra lateral) — Fibonacci, posición larga y posición corta:
+- **Herramientas de dibujo** (barra lateral) — línea de tendencia, línea horizontal, Fibonacci,
+  posición larga y posición corta:
   se crean con dos clics, se ajustan arrastrando sus tiradores, y **doble clic sobre el objeto
   abre su ventana de configuración** (o el botón *Configurar* de la barra superior).
   - *Fibonacci*: doce niveles disponibles (0 / 23,6 / 38,2 / 50 / 61,8 / 78,6 / 100 % activos, y
@@ -103,8 +104,12 @@ dibujo; y el gráfico ocupando todo lo demás, con la leyenda de precios encima.
     Fibonacci trazado en 1 minuto sigue marcando el mismo tramo cuando pasás a 1 hora.
 - **Objetos** — `Supr` borra el seleccionado y el ícono de papelera borra todos.
 - **Reproducción** — avanza vela por vela a la velocidad elegida (1 a 50 velas/s), con pausa,
-  paso adelante/atrás y una barra para saltar a cualquier punto. Los indicadores se recalculan
-  sólo con las velas ya reveladas, así que sirve para practicar sin ver el futuro.
+  paso adelante/atrás y una barra para saltar a cualquier punto. Con el teclado: barra
+  espaciadora para reproducir o pausar, y flechas ← → para ir vela por vela. Los indicadores se
+  recalculan sólo con las velas ya reveladas, así que sirve para practicar sin ver el futuro.
+- **Simulador de trading** — durante la reproducción podés operar con dinero ficticio: se arranca
+  con un balance de 10.000, se compra o vende a mercado o con órdenes límite (que se ejecutan
+  solas cuando el precio las toca al avanzar), y se ve la posición abierta con su PnL en vivo.
 
 ### Descargar datos
 
