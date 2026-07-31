@@ -40,16 +40,36 @@ const ICONS = {
       <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" strokeLinejoin="round" />
     </Icon>
   ),
+  magnet: (
+    <Icon>
+      <path d="M17 12V6a5 5 0 00-10 0v6M5 12h4m6 0h4M5 12v3a2 2 0 002 2h2v-5M15 12v3a2 2 0 002 2h2v-5" strokeLinejoin="round" strokeLinecap="round" />
+    </Icon>
+  ),
+  trend: (
+    <Icon>
+      <path d="M4 20L20 4" />
+      <circle cx="4" cy="20" r="2" fill="currentColor" />
+      <circle cx="20" cy="4" r="2" fill="currentColor" />
+    </Icon>
+  ),
+  horizontal: (
+    <Icon>
+      <path d="M3 12h18" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" />
+    </Icon>
+  ),
 }
 
 const TOOL_BUTTONS = [
   { id: null, icon: 'cursor', title: 'Cursor — seleccionar y arrastrar' },
+  { id: 'trend', icon: 'trend', title: 'Línea de tendencia' },
+  { id: 'horizontal', icon: 'horizontal', title: 'Línea horizontal' },
   { id: 'fib', icon: 'fib', title: 'Retroceso de Fibonacci' },
   { id: 'long', icon: 'long', title: 'Posición larga' },
   { id: 'short', icon: 'short', title: 'Posición corta' },
 ]
 
-export default function ChartToolbar({ tool, onTool, onClear, count }) {
+export default function ChartToolbar({ tool, onTool, onClear, count, magnet, onToggleMagnet }) {
   return (
     <div className="chart-toolbar">
       {TOOL_BUTTONS.map((button) => (
@@ -66,6 +86,15 @@ export default function ChartToolbar({ tool, onTool, onClear, count }) {
       ))}
 
       <div className="tool-separator" />
+
+      <button
+        className={`tool ${magnet ? 'active' : ''}`}
+        title={magnet ? 'Desactivar imantación (Magnet Mode)' : 'Activar imantación (Magnet Mode)'}
+        aria-label="Modo magnético"
+        onClick={onToggleMagnet}
+      >
+        {ICONS.magnet}
+      </button>
 
       <button
         className="tool"

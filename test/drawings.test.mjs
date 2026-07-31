@@ -153,3 +153,16 @@ test('sin velas, la reubicación devuelve los dibujos tal cual', () => {
   assert.deepEqual(remapDrawings([drawing], [], 60, oneMin, 60), [drawing])
   assert.deepEqual(remapDrawings([drawing], oneMin, 60, [], 60), [drawing])
 })
+
+test('trend y horizontal: tiradores y movimiento de manijas', () => {
+  const trend = createDrawing('trend', { x1: 5, p1: 100, x2: 20, p2: 200 })
+  assert.deepEqual(handlesOf(trend).map((h) => h.key), ['p1', 'p2'])
+
+  const hz = createDrawing('horizontal', { x1: 5, p1: 150, x2: 5, p2: 150 })
+  assert.deepEqual(handlesOf(hz).map((h) => h.key), ['p1'])
+
+  const hzMovido = moveHandle(hz, 'p1', { x: 8, price: 160 })
+  assert.equal(hzMovido.p1, 160)
+  assert.equal(hzMovido.p2, 160)
+})
+

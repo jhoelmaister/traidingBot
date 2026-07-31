@@ -30,6 +30,8 @@ export default function DrawingLayer({
   onSelect,
   onToolEnd,
   onOpenSettings,
+  magnet,
+  bars,
 }) {
   const canvasRef = useRef(null)
   const drawRef = useRef(null)
@@ -38,7 +40,7 @@ export default function DrawingLayer({
   const cursorRef = useRef(null)
   const propsRef = useRef(null)
 
-  propsRef.current = { drawings, tool, selectedId, onCreate, onChange, onSelect, onToolEnd, onOpenSettings }
+  propsRef.current = { drawings, tool, selectedId, onCreate, onChange, onSelect, onToolEnd, onOpenSettings, magnet, bars }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -50,6 +52,26 @@ export default function DrawingLayer({
     const toY = (price) => series.priceToCoordinate(price)
     const fromX = (x) => timeScale.coordinateToLogical(x)
     const fromY = (y) => series.coordinateToPrice(y)
+
+    function snapPoint(logical, price) {
+      const { magnet: isMagnet, bars: activeBars } = propsRef.current
+      if (!isMagnet || !activeBars || !activeBars.length) return { logical, price }
+      const idx = Math.round(logical)
+      if (idx < 0 || idx >= activeBars.length) return { logical, price }
+      const bar = activeBars[idx]
+      const candidates = [bar.open, bar.high, bar.low, bar.close]
+
+      let closestPrice = candidates[0]
+      let minPriceDist = Math.abs(price - candidates[0])
+      for (let i = 1; i < candidates.length; i++) {
+        const dist = Math.abs(price - candidates[i])
+        if (dist < minPriceDist) {
+          minPriceDist = dist
+          closestPrice = candidates[i]
+        }
+      }
+      return { logical: idx, price: closestPrice }
+    }
 
     function sizeCanvas() {
       const dpr = window.devicePixelRatio || 1
@@ -163,6 +185,26 @@ export default function DrawingLayer({
       label(resumen, right, (yTarget + yStop) / 2, metrics.valid ? NEUTRAL : style.lossColor, 'right')
     }
 
+    function drawTrend(d, selected) {
+      const style = d.style
+      const x1 = toX(d.x1)
+      const x2 = toX(d.x2)
+      const y1 = toY(d.p1)
+      const y2 = toY(d.p2)
+      if (x1 == null || x2 == null || y1 == null || y2 == null) return
+      const dash = style.lineStyle === 'dashed' ? [6, 4] : style.lineStyle === 'dotted' ? [2, 3] : null
+      line(x1, y1, x2, y2, style.lineColor, selected ? style.lineWidth + 0.6 : style.lineWidth, dash)
+    }
+
+    function drawHorizontal(d, selected) {
+      const style = d.style
+      const y = toY(d.p1)
+      if (y == null) return
+      const dash = style.lineStyle === 'dashed' ? [6, 4] : style.lineStyle === 'dotted' ? [2, 3] : null
+      line(0, y, canvas.clientWidth, y, style.lineColor, selected ? style.lineWidth + 0.6 : style.lineWidth, dash)
+      label(formatPrice(d.p1), canvas.clientWidth - 8, y - 8, style.lineColor, 'right')
+    }
+
     function drawHandles(d, selected) {
       for (const handle of handlesOf(d)) {
         const x = toX(handle.x)
@@ -180,11 +222,13 @@ export default function DrawingLayer({
 
     function paint(d, selected) {
       if (d.type === 'fib') drawFib(d, selected)
+      else if (d.type === 'trend') drawTrend(d, selected)
+      else if (d.type === 'horizontal') drawHorizontal(d, selected)
       else drawPosition(d, selected)
     }
 
     function draw() {
-      const { drawings: list, selectedId: selected } = propsRef.current
+      const { drawings: list, selectedId: selected, tool: activeTool } = propsRef.current
       ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
 
       // Sólo dibujamos dentro del panel de precio, no sobre volumen/RSI/eje.
@@ -199,13 +243,20 @@ export default function DrawingLayer({
         drawHandles(d, d.id === selected)
       }
 
-      // Vista previa mientras se coloca el segundo punto.
+      // Vista previa mientras se coloca el dibujo.
       const draft = draftRef.current
       const cursor = cursorRef.current
       if (draft && cursor) {
         ctx.globalAlpha = 0.75
         paint(
           createDrawing(draft.type, { x1: draft.x1, p1: draft.p1, x2: cursor.logical, p2: cursor.price }),
+          false,
+        )
+        ctx.globalAlpha = 1
+      } else if (activeTool === 'horizontal' && cursor) {
+        ctx.globalAlpha = 0.5
+        paint(
+          createDrawing('horizontal', { x1: cursor.logical, p1: cursor.price, x2: cursor.logical, p2: cursor.price }),
           false,
         )
         ctx.globalAlpha = 1
@@ -235,7 +286,22 @@ export default function DrawingLayer({
         const d = list[i]
         const x1 = toX(d.x1)
         const x2 = toX(d.x2)
+        if (d.type === 'horizontal') {
+          const yVal = toY(d.p1)
+          if (yVal != null && Math.abs(y - yVal) <= 6) return d.id
+          continue
+        }
         if (x1 == null || x2 == null) continue
+        if (d.type === 'trend') {
+          const y1 = toY(d.p1)
+          const y2 = toY(d.p2)
+          if (y1 == null || y2 == null) continue
+          const length = Math.hypot(x2 - x1, y2 - y1)
+          if (length === 0) continue
+          const dist = Math.abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1)) / length
+          if (x >= Math.min(x1, x2) - 6 && x <= Math.max(x1, x2) + 6 && dist <= 6) return d.id
+          continue
+        }
         if (x < Math.min(x1, x2) - 4 || x > Math.max(x1, x2) + 4) continue
 
         const precios = d.type === 'fib' ? visibleFibLevels(d).map((l) => l.price) : [d.p1, d.p2, d.stop]
@@ -261,9 +327,12 @@ export default function DrawingLayer({
 
       const drag = dragRef.current
       if (drag) {
-        const logical = fromX(x)
-        const price = fromY(y)
+        let logical = fromX(x)
+        let price = fromY(y)
         if (logical == null || price == null) return
+        const snapped = snapPoint(logical, price)
+        logical = snapped.logical
+        price = snapped.price
         const target = list.find((d) => d.id === drag.id)
         if (target) change(moveHandle(target, drag.handle, { x: logical, price }))
         return
@@ -272,13 +341,14 @@ export default function DrawingLayer({
       if (activeTool) {
         setCapture(true)
         wrapEl.style.cursor = 'crosshair'
-        if (draftRef.current) {
-          const logical = fromX(x)
-          const price = fromY(y)
-          if (logical != null && price != null) {
-            cursorRef.current = { logical, price }
-            draw()
-          }
+        let logical = fromX(x)
+        let price = fromY(y)
+        if (logical != null && price != null) {
+          const snapped = snapPoint(logical, price)
+          logical = snapped.logical
+          price = snapped.price
+          cursorRef.current = { logical, price }
+          draw()
         }
         return
       }
@@ -291,13 +361,23 @@ export default function DrawingLayer({
     function onMouseDown(event) {
       const { tool: activeTool, onCreate: create, onSelect: select, onToolEnd: endTool } = propsRef.current
       const { x, y } = localPoint(event)
-      const logical = fromX(x)
-      const price = fromY(y)
+      let logical = fromX(x)
+      let price = fromY(y)
 
       if (activeTool) {
         if (logical == null || price == null) return
+        const snapped = snapPoint(logical, price)
+        logical = snapped.logical
+        price = snapped.price
         event.preventDefault()
         event.stopPropagation()
+
+        if (activeTool === 'horizontal') {
+          create(createDrawing('horizontal', { x1: logical, p1: price, x2: logical, p2: price }))
+          cursorRef.current = null
+          endTool()
+          return
+        }
 
         if (!draftRef.current) {
           draftRef.current = { type: activeTool, x1: logical, p1: price }

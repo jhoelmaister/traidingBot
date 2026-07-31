@@ -28,7 +28,9 @@ export default function DrawingSettingsDialog({ drawing, onAccept, onClose }) {
     setStyle({ levels: draft.style.levels.map((l, i) => (i === index ? { ...l, ...patch } : l)) })
 
   const esFib = draft.type === 'fib'
-  const metrics = esFib ? null : positionMetrics(draft)
+  const esLinea = draft.type === 'trend' || draft.type === 'horizontal'
+  const esPosicion = draft.type === 'long' || draft.type === 'short'
+  const metrics = esPosicion ? positionMetrics(draft) : null
 
   return (
     <Modal
@@ -119,7 +121,48 @@ export default function DrawingSettingsDialog({ drawing, onAccept, onClose }) {
         </>
       )}
 
-      {tab === 'estilo' && !esFib && (
+      {tab === 'estilo' && esLinea && (
+        <>
+          <div className="ind-row">
+            <span className="ind-name">Color de la línea</span>
+            <input
+              type="color"
+              value={draft.style.lineColor}
+              onChange={(e) => setStyle({ lineColor: e.target.value })}
+            />
+          </div>
+          <div className="ind-row">
+            <label className="field">
+              Ancho de línea
+              <select
+                value={draft.style.lineWidth}
+                onChange={(e) => setStyle({ lineWidth: Number(e.target.value) })}
+              >
+                {[1, 2, 3, 4].map((w) => (
+                  <option key={w} value={w}>
+                    {w} px
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="ind-row">
+            <label className="field">
+              Estilo
+              <select
+                value={draft.style.lineStyle}
+                onChange={(e) => setStyle({ lineStyle: e.target.value })}
+              >
+                <option value="solid">Línea sólida</option>
+                <option value="dashed">Línea discontinua</option>
+                <option value="dotted">Línea punteada</option>
+              </select>
+            </label>
+          </div>
+        </>
+      )}
+
+      {tab === 'estilo' && esPosicion && (
         <>
           <div className="ind-row">
             <span className="ind-name">Zona de ganancia</span>
@@ -166,7 +209,16 @@ export default function DrawingSettingsDialog({ drawing, onAccept, onClose }) {
         </>
       )}
 
-      {tab === 'coordenadas' && !esFib && (
+      {tab === 'coordenadas' && esLinea && (
+        <>
+          <PriceField label="Precio 1" value={draft.p1} onChange={(p1) => set({ p1 })} />
+          {draft.type === 'trend' && (
+            <PriceField label="Precio 2" value={draft.p2} onChange={(p2) => set({ p2 })} />
+          )}
+        </>
+      )}
+
+      {tab === 'coordenadas' && esPosicion && (
         <>
           <PriceField label="Entrada" value={draft.p1} onChange={(p1) => set({ p1 })} />
           <PriceField label="Objetivo" value={draft.p2} onChange={(p2) => set({ p2 })} />

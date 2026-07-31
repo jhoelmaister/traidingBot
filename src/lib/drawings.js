@@ -11,6 +11,8 @@
 export const FIB_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
 
 export const TOOLS = [
+  { id: 'trend', label: 'Línea de tendencia' },
+  { id: 'horizontal', label: 'Línea horizontal' },
   { id: 'fib', label: 'Fibonacci' },
   { id: 'long', label: 'Posición larga' },
   { id: 'short', label: 'Posición corta' },
@@ -54,9 +56,18 @@ export const DEFAULT_POSITION_STYLE = {
   background: true,
 }
 
+export const DEFAULT_LINE_STYLE = {
+  lineColor: '#2962ff',
+  lineWidth: 2,
+  lineStyle: 'solid', // solid, dashed, dotted
+}
+
 export function defaultStyle(type) {
   if (type === 'fib') {
     return { ...DEFAULT_FIB_STYLE, levels: DEFAULT_FIB_LEVELS.map((l) => ({ ...l })) }
+  }
+  if (type === 'trend' || type === 'horizontal') {
+    return { ...DEFAULT_LINE_STYLE }
   }
   return { ...DEFAULT_POSITION_STYLE }
 }
@@ -123,7 +134,12 @@ export function visibleFibLevels(drawing) {
 
 /** Puntos que se pueden arrastrar, en coordenadas del dibujo. */
 export function handlesOf(drawing) {
-  if (drawing.type === 'fib') {
+  if (drawing.type === 'horizontal') {
+    return [
+      { key: 'p1', x: drawing.x1, price: drawing.p1 },
+    ]
+  }
+  if (drawing.type === 'fib' || drawing.type === 'trend') {
     return [
       { key: 'p1', x: drawing.x1, price: drawing.p1 },
       { key: 'p2', x: drawing.x2, price: drawing.p2 },
@@ -142,6 +158,11 @@ export function moveHandle(drawing, handle, { x, price }) {
   if (handle === 'p1') {
     next.x1 = x
     next.p1 = price
+    if (drawing.type === 'horizontal') {
+      // Para una línea horizontal infinitamente extendida, mantenemos x2 alineado con x1
+      next.x2 = x
+      next.p2 = price
+    }
   } else if (handle === 'p2') {
     next.x2 = x
     next.p2 = price
@@ -205,6 +226,8 @@ export function remapDrawings(drawings, fromBars, fromStep, toBars, toStep) {
 }
 
 export function describe(drawing) {
+  if (drawing.type === 'trend') return 'Línea de tendencia'
+  if (drawing.type === 'horizontal') return 'Línea horizontal'
   if (drawing.type === 'fib') return 'Fibonacci'
   return drawing.type === 'long' ? 'Posición larga' : 'Posición corta'
 }

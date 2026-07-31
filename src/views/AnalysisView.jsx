@@ -28,23 +28,89 @@ export default function AnalysisView({ dataset, onDataset }) {
   const [loading, setLoading] = useState('')
   const [dragging, setDragging] = useState(false)
   const [interval, setIntervalValue] = useState(null)
-  const [indicators, setIndicators] = useState(DEFAULT_INDICATORS)
+  
+  // Persistencia de indicadores en localStorage
+  const [indicators, setIndicators] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tradingview_indicators')
+      return saved ? JSON.parse(saved) : DEFAULT_INDICATORS
+    } catch (e) {
+      return DEFAULT_INDICATORS
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('tradingview_indicators', JSON.stringify(indicators))
+    } catch (e) {}
+  }, [indicators])
+
   const [replay, setReplay] = useState(null)
-  const [drawings, setDrawings] = useState([])
+  
+  // Gestión de dibujos con historial de Deshacer/Rehacer (Undo/Redo)
+  const [drawings, setDrawingsState] = useState([])
+  const historyRef = useRef({ list: [[]], index: 0 })
+
+  const setDrawings = (update, skipHistory = false) => {
+    setDrawingsState((current) => {
+      const next = typeof update === 'function' ? update(current) : update
+      if (!skipHistory) {
+        const { list, index } = historyRef.current
+        const nextList = list.slice(0, index + 1)
+        nextList.push(next)
+        historyRef.current = { list: nextList, index: nextList.length - 1 }
+      }
+      return next
+    })
+  }
+
+  const clearHistory = (initialValue = []) => {
+    historyRef.current = { list: [initialValue], index: 0 }
+    setDrawingsState(initialValue)
+  }
+
+  const undo = () => {
+    const { list, index } = historyRef.current
+    if (index > 0) {
+      const nextIndex = index - 1
+      historyRef.current.index = nextIndex
+      setDrawingsState(list[nextIndex])
+    }
+  }
+
+  const redo = () => {
+    const { list, index } = historyRef.current
+    if (index < list.length - 1) {
+      const nextIndex = index + 1
+      historyRef.current.index = nextIndex
+      setDrawingsState(list[nextIndex])
+    }
+  }
+
+  const [magnet, setMagnet] = useState(false)
   const [tool, setTool] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [dialog, setDialog] = useState(null) // null | 'indicadores' | id de un dibujo
   const fileInputRef = useRef(null)
 
+  // Estados de Simulación de Trading (Paper Trading)
+  const [balance, setBalance] = useState(10000)
+  const [position, setPosition] = useState(null) // null | { type: 'long'|'short', entryPrice, amount, time }
+  const [trades, setTrades] = useState([])
+  const [limitOrders, setLimitOrders] = useState([])
+  const [orderPrice, setOrderPrice] = useState('')
+  const [orderAmount, setOrderAmount] = useState('0.1')
+
   const sourceInterval = useMemo(() => (dataset ? detectInterval(dataset.bars) : null), [dataset])
 
-  // Datos nuevos: volvemos a la resolución nativa y limpiamos lo dibujado.
+  // Datos nuevos: volvemos a la resolución nativa y limpiamos lo dibujado y simulación.
   useEffect(() => {
     setIntervalValue(sourceInterval?.value ?? null)
     setReplay(null)
-    setDrawings([])
+    clearHistory([])
     setSelectedId(null)
     setTool(null)
+    resetSimulation()
   }, [sourceInterval, dataset])
 
   const bars = useMemo(() => {
@@ -61,9 +127,17 @@ export default function AnalysisView({ dataset, onDataset }) {
   useEffect(() => {
     const previous = previousRef.current
     if (previous.bars !== bars && previous.bars.length && bars.length) {
-      setDrawings((current) =>
-        current.length ? remapDrawings(current, previous.bars, previous.stepSeconds, bars, stepSeconds) : current,
-      )
+      setDrawingsState((current) => {
+        if (!current.length) return current
+        const next = remapDrawings(current, previous.bars, previous.stepSeconds, bars, stepSeconds)
+        historyRef.current = {
+          list: historyRef.current.list.map(listState =>
+            remapDrawings(listState, previous.bars, previous.stepSeconds, bars, stepSeconds)
+          ),
+          index: historyRef.current.index
+        }
+        return next
+      })
     }
     previousRef.current = { bars, stepSeconds }
   }, [bars, stepSeconds])
@@ -73,6 +147,8 @@ export default function AnalysisView({ dataset, onDataset }) {
       drawings,
       tool,
       selectedId,
+      magnet,
+      bars,
       onCreate: (drawing) => {
         setDrawings((current) => [...current, drawing])
         setSelectedId(drawing.id)
@@ -86,7 +162,7 @@ export default function AnalysisView({ dataset, onDataset }) {
         setDialog(id)
       },
     }),
-    [drawings, tool, selectedId],
+    [drawings, tool, selectedId, magnet, bars],
   )
 
   const availableIntervals = sourceInterval ? intervalsAtLeast(sourceInterval.ms) : []
@@ -94,18 +170,48 @@ export default function AnalysisView({ dataset, onDataset }) {
   const currentBar = bars[Math.max(0, visibleCount - 1)] ?? null
   const selected = drawings.find((d) => d.id === selectedId) ?? null
 
-  // Supr borra el objeto seleccionado, como en cualquier editor.
+  // Atajos de teclado del gráfico y replay.
   useEffect(() => {
-    if (!selectedId || dialog) return
     function onKeyDown(event) {
-      if (event.key !== 'Delete' && event.key !== 'Backspace') return
       if (/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) return
-      setDrawings((current) => current.filter((d) => d.id !== selectedId))
-      setSelectedId(null)
+      if (dialog) return
+
+      // 1. Borrar dibujo seleccionado
+      if (selectedId && (event.key === 'Delete' || event.key === 'Backspace')) {
+        setDrawings((current) => current.filter((d) => d.id !== selectedId))
+        setSelectedId(null)
+        return
+      }
+
+      // 2. Deshacer / Rehacer (Ctrl+Z / Ctrl+Y)
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === 'z') {
+          event.preventDefault()
+          undo()
+        } else if (event.key.toLowerCase() === 'y') {
+          event.preventDefault()
+          redo()
+        }
+        return
+      }
+
+      // 3. Controles del replay
+      if (replay) {
+        if (event.key === ' ') {
+          event.preventDefault()
+          setReplay((r) => ({ ...r, playing: !r.playing && r.index < bars.length }))
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          setReplay((r) => ({ ...r, index: Math.min(bars.length, r.index + 1), playing: false }))
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          setReplay((r) => ({ ...r, index: Math.max(1, r.index - 1), playing: false }))
+        }
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedId, dialog])
+  }, [selectedId, dialog, replay, bars.length])
 
   // Motor de la reproducción: un tick por vela, al ritmo elegido.
   useEffect(() => {
@@ -122,6 +228,156 @@ export default function AnalysisView({ dataset, onDataset }) {
 
     return () => window.clearInterval(id)
   }, [replay?.playing, replay?.speed, bars.length])
+
+
+  function executeOrder(type, price, amount, time) {
+    setPosition((prev) => {
+      if (!prev) {
+        const cost = price * amount
+        if (type === 'buy') {
+          setBalance((b) => b - cost)
+          return { type: 'long', entryPrice: price, amount, time }
+        } else {
+          setBalance((b) => b + cost)
+          return { type: 'short', entryPrice: price, amount, time }
+        }
+      }
+
+      if ((prev.type === 'long' && type === 'buy') || (prev.type === 'short' && type === 'sell')) {
+        const cost = price * amount
+        const totalAmount = prev.amount + amount
+        const avgEntryPrice = (prev.entryPrice * prev.amount + price * amount) / totalAmount
+        if (type === 'buy') {
+          setBalance((b) => b - cost)
+        } else {
+          setBalance((b) => b + cost)
+        }
+        return { ...prev, entryPrice: avgEntryPrice, amount: totalAmount }
+      } else {
+        if (amount >= prev.amount) {
+          const remainingAmount = amount - prev.amount
+          let pnl = 0
+          if (prev.type === 'long') {
+            const revenue = prev.amount * price
+            pnl = revenue - (prev.amount * prev.entryPrice)
+            setBalance((b) => b + revenue)
+          } else {
+            const cost = prev.amount * price
+            pnl = (prev.amount * prev.entryPrice) - cost
+            setBalance((b) => b - cost)
+          }
+
+          setTrades((t) => [
+            ...t,
+            {
+              type: prev.type,
+              entryPrice: prev.entryPrice,
+              exitPrice: price,
+              amount: prev.amount,
+              pnl,
+              pnlPct: (pnl / (prev.amount * prev.entryPrice)) * 100 * (prev.type === 'long' ? 1 : -1),
+              entryTime: prev.time,
+              exitTime: time,
+            },
+          ])
+
+          if (remainingAmount > 0) {
+            const cost = price * remainingAmount
+            if (type === 'buy') {
+              setBalance((b) => b - cost)
+              return { type: 'long', entryPrice: price, amount: remainingAmount, time }
+            } else {
+              setBalance((b) => b + cost)
+              return { type: 'short', entryPrice: price, amount: remainingAmount, time }
+            }
+          }
+          return null
+        } else {
+          let pnl = 0
+          if (prev.type === 'long') {
+            const revenue = amount * price
+            pnl = revenue - (amount * prev.entryPrice)
+            setBalance((b) => b + revenue)
+          } else {
+            const cost = amount * price
+            pnl = (amount * prev.entryPrice) - cost
+            setBalance((b) => b - cost)
+          }
+
+          setTrades((t) => [
+            ...t,
+            {
+              type: prev.type,
+              entryPrice: prev.entryPrice,
+              exitPrice: price,
+              amount: amount,
+              pnl,
+              pnlPct: (pnl / (amount * prev.entryPrice)) * 100 * (prev.type === 'long' ? 1 : -1),
+              entryTime: prev.time,
+              exitTime: time,
+            },
+          ])
+
+          return { ...prev, amount: prev.amount - amount }
+        }
+      }
+    })
+  }
+
+  function handleMarketOrder(type) {
+    if (!currentBar) return
+    const amount = parseFloat(orderAmount)
+    if (isNaN(amount) || amount <= 0) return
+    executeOrder(type, currentBar.close, amount, currentBar.time)
+  }
+
+  function handleLimitOrder(type) {
+    const price = parseFloat(orderPrice)
+    const amount = parseFloat(orderAmount)
+    if (isNaN(price) || price <= 0 || isNaN(amount) || amount <= 0) return
+    setLimitOrders((orders) => [
+      ...orders,
+      { id: Date.now().toString(36), type, price, amount },
+    ])
+    setOrderPrice('')
+  }
+
+  function cancelLimitOrder(id) {
+    setLimitOrders((orders) => orders.filter((o) => o.id !== id))
+  }
+
+  function closePosition() {
+    if (!position || !currentBar) return
+    executeOrder(position.type === 'long' ? 'sell' : 'buy', currentBar.close, position.amount, currentBar.time)
+  }
+
+  function resetSimulation() {
+    setBalance(10000)
+    setPosition(null)
+    setTrades([])
+    setLimitOrders([])
+  }
+
+  // Evaluar órdenes límite pendientes al avanzar la simulación
+  useEffect(() => {
+    if (!replay) return
+    const bar = bars[replay.index - 1]
+    if (!bar) return
+
+    setLimitOrders((orders) => {
+      if (!orders.length) return orders
+      const remaining = []
+      orders.forEach((order) => {
+        const executed = bar.low <= order.price && order.price <= bar.high
+        if (executed) {
+          executeOrder(order.type, order.price, order.amount, bar.time)
+        } else {
+          remaining.push(order)
+        }
+      })
+      return remaining
+    })
+  }, [replay?.index])
 
   async function loadFile(file) {
     if (!file) return
@@ -279,6 +535,8 @@ export default function AnalysisView({ dataset, onDataset }) {
           tool={tool}
           onTool={setTool}
           count={drawings.length}
+          magnet={magnet}
+          onToggleMagnet={() => setMagnet((m) => !m)}
           onClear={() => {
             setDrawings([])
             setSelectedId(null)
@@ -363,6 +621,116 @@ export default function AnalysisView({ dataset, onDataset }) {
           <button onClick={() => setReplay(null)} title="Salir de la reproducción">
             ✕
           </button>
+        </div>
+      )}
+
+      {replay && (
+        <div className="panel paper-trading">
+          <div className="trading-section">
+            <h4>Simulador de Trading</h4>
+            <div className="trading-stats">
+              <span>Balance: <strong>${formatPrice(balance)}</strong></span>
+              {position && (
+                <>
+                  <span className={`position-badge ${position.type}`}>
+                    {position.type === 'long' ? 'LONG' : 'SHORT'} {position.amount} BTC
+                  </span>
+                  <span>Entrada: ${formatPrice(position.entryPrice)}</span>
+                  <span>
+                    PnL:{' '}
+                    <strong
+                      className={
+                        currentBar && currentBar.close >= position.entryPrice
+                          ? position.type === 'long' ? 'up' : 'down'
+                          : position.type === 'long' ? 'down' : 'up'
+                      }
+                    >
+                      ${currentBar ? formatPrice((currentBar.close - position.entryPrice) * position.amount * (position.type === 'long' ? 1 : -1)) : '0.00'}
+                    </strong>
+                  </span>
+                  <button className="x-close" onClick={closePosition}>Cerrar Posición</button>
+                </>
+              )}
+            </div>
+            <div className="trading-actions">
+              <div className="input-group">
+                <label>
+                  Cant:
+                  <input
+                    type="number"
+                    step="0.01"
+                    style={{ width: '70px' }}
+                    value={orderAmount}
+                    onChange={(e) => setOrderAmount(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Precio Límite:
+                  <input
+                    type="number"
+                    step="0.1"
+                    style={{ width: '100px' }}
+                    value={orderPrice}
+                    onChange={(e) => setOrderPrice(e.target.value)}
+                    placeholder="Límite"
+                  />
+                </label>
+              </div>
+              <div className="buttons-group">
+                <button className="buy" onClick={() => handleMarketOrder('buy')}>Compra Market</button>
+                <button className="sell" onClick={() => handleMarketOrder('sell')}>Venta Market</button>
+                <button onClick={() => handleLimitOrder('buy')}>Compra Límite</button>
+                <button onClick={() => handleLimitOrder('sell')}>Venta Límite</button>
+                <button className="ghost" onClick={resetSimulation}>Reiniciar Simulador</button>
+              </div>
+            </div>
+          </div>
+          {limitOrders.length > 0 && (
+            <div className="limit-orders-list">
+              <h5>Órdenes Límite Pendientes ({limitOrders.length})</h5>
+              <div className="orders-tags">
+                {limitOrders.map((o) => (
+                  <span key={o.id} className="order-tag">
+                    {o.type === 'buy' ? 'COMPRA' : 'VENTA'} Límite {o.amount} @ ${formatPrice(o.price)}
+                    <button className="cancel-btn" onClick={() => cancelLimitOrder(o.id)}>✕</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {trades.length > 0 && (
+            <div className="trades-history">
+              <h5>Historial de Trades ({trades.length})</h5>
+              <div className="trades-table-container">
+                <table className="trades-table">
+                  <thead>
+                    <tr>
+                      <th>Tipo</th>
+                      <th>Entrada</th>
+                      <th>Salida</th>
+                      <th>Cantidad</th>
+                      <th>Resultado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trades.map((t, idx) => (
+                      <tr key={idx}>
+                        <td className={t.type === 'long' ? 'up' : 'down'}>
+                          {t.type === 'long' ? 'LONG' : 'SHORT'}
+                        </td>
+                        <td>${formatPrice(t.entryPrice)}</td>
+                        <td>${formatPrice(t.exitPrice)}</td>
+                        <td>{t.amount}</td>
+                        <td className={t.pnl >= 0 ? 'up' : 'down'}>
+                          ${formatPrice(t.pnl)} ({t.pnlPct.toFixed(2)}%)
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
